@@ -38,6 +38,16 @@ type TextWindow
     textcolor as byte
 end type
 
+type fciInfo
+    baseAdr as long
+    paletteAdr as long
+    paletteSize as byte
+    reservedSysPalette as byte
+    columns as byte
+    rows as byte
+    size as word
+end type
+
 dim gConfig as Config shared
 dim gCurrentWindow as TextWindow shared
 dim gScreenSize as word shared
@@ -46,7 +56,9 @@ dim gScreenColumns as byte shared
 dim gTopBorder as word shared
 dim gBottomBorder as word shared
 
-dim defaultWindow as TextWindow @$0700
+dim infoBlocks(16) as fciInfo @600
+dim windows(8) as TextWindow @$700
+dim defaultWindow as TextWindow
 
 dim autocr as byte
 dim csrflag as byte
@@ -67,6 +79,31 @@ end sub
 sub fc_textcolor(color as byte) shared static
     gCurrentWindow.textcolor = color
 end sub
+
+function fc_kbhit as byte () static
+    return peek($d610)
+end function
+
+function fc_cgetc as byte () static
+    dim k as byte
+    do
+        k = peek($d610)
+        poke $d610, 0
+    loop until k <> 0
+    return k
+end function
+
+sub fc_emptyBuffer() static
+    dim dummy as byte
+    do while fc_kbhit()
+        dummy = fc_cgetc()
+    loop
+end sub
+
+function fc_getkey as byte () shared static
+    call fc_emptyBuffer()
+    return fc_cgetc()
+end function
 
 sub fc_clrscr() shared static
     ' TODO
@@ -139,6 +176,8 @@ end sub
 sub fc_real_init(h640 as byte, v400 as byte, rows as byte) static
     call enable_io()
 
+    defaultWindow = windows(0)
+
     if peek($d06f) and 128 then
         gTopBorder = TOPBORDER_NTSC
         gBottomBorder = BOTTOMBORDER_NTSC
@@ -159,6 +198,13 @@ end sub
 sub fc_gotoxy(x as byte, y as byte) shared static 
     gCurrentWindow.xc = x
     gCurrentWindow.yc = y
+end sub
+
+sub fc_displayFCIFile(filename as String * 20, x0 as byte, y0 as byte) shared static
+    'fciInfo *info;
+    'info = fc_loadFCI(filename, 0, 0);
+    'fc_displayFCI(info, x0, y0, true);
+    'TOOD return info;
 end sub
 
 sub fc_scrollup() shared static

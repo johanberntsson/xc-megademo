@@ -4,10 +4,11 @@ XEMU := xemu-xmega65
 DASM := ../../dasm/dasm
 XCBASIC3 := ../bin/Linux/xcbasic3
 # generated binaries
-PRG := bin/megademo.prg
+PRG := bin/demo.prg
 DISCNAME := xc-megademo.d81
 # all basic source files
-BASICSOURCE := $(wildcard *.bas) $(wildcard **/*.bas)
+MAINSOURCE := demo.bas
+BASICSOURCE :=  $(MAINSOURCE) $(wildcard **/*.bas)
 # png files to convert and add to the floppy
 PNGS := $(wildcard img-src/*.png)
 FCIS := $(subst img-src, res, $(PNGS:%.png=%.fci))
@@ -15,7 +16,7 @@ FCIS := $(subst img-src, res, $(PNGS:%.png=%.fci))
 # phony target is simply a target that is always out-of-date
 .PHONY: mega65, mega65-prg, all, clean
 
-all: mega65-prg
+all: mega65
 
 # convert png to fci (MEGA65 full color mode graphics)
 res/%.fci: img-src/%.png
@@ -23,7 +24,7 @@ res/%.fci: img-src/%.png
 
 $(PRG): $(BASICSOURCE)
 	mkdir -p bin res
-	$(XCBASIC3) megademo.bas $(PRG) -d $(DASM)
+	$(XCBASIC3) $(MAINSOURCE) $(PRG) -d $(DASM)
 
 $(DISCNAME): $(PRG) $(FCIS)
 	cat c65bin/c65toc64wrapper.prg $(PRG) > bin/autoboot.c65

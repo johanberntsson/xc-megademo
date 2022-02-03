@@ -3,6 +3,8 @@ A demonstration of using XC=BASIC 3 to program the MEGA65 in full color graphics
 
 Read more about XC=BASIC in the [manual](https://xc-basic.net/doku.php?id=v3:start).
 
+The full color mode is adapted from FCIO in the mega65 C library. There is a good [tutorial](https://steph72.github.io/fcio-tutorial/) that will give a nice overview.
+
 # Getting Started
 
 Download and install [xc-basic 3](https://github.com/neilsf/xc-basic3)
