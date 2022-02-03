@@ -5,9 +5,7 @@
 ' dma_poke
 ' dma_fill
 ' dma_fill_skip
-'
-' and corresponding dma256_ functions for attic RAM access
-'
+
 type Dmalist
     option_0b as byte
     option_80 as byte
@@ -36,7 +34,7 @@ sub do_dma() static
     poke $d705, BYTE0(@dmalist)
 end sub 
 
-sub dma256_fill(highaddress as byte, address as long, value as byte, count as word) shared static
+sub dma_fill(highaddress as byte, address as long, value as byte, count as word) shared static
     dmalist.option_0b = $0b
     dmalist.option_80 = $80
     dmalist.source_mb = 0
@@ -54,11 +52,11 @@ sub dma256_fill(highaddress as byte, address as long, value as byte, count as wo
     call do_dma()
 end sub
 
-sub dma_fill(address as long, value as byte, count as word) shared static
-    call dma256_fill(0, address, value, count)
+sub dma_fill(address as long, value as byte, count as word) shared static overload
+    call dma_fill(0, address, value, count)
 end sub
 
-sub dma256_fill_skip(highaddress as byte, address as long, value as byte, count as word, skip as byte) shared static
+sub dma_fill_skip(highaddress as byte, address as long, value as byte, count as word, skip as byte) shared static
     dmalist.option_0b = $0b
     dmalist.option_80 = $80
     dmalist.source_mb = 0
@@ -76,11 +74,11 @@ sub dma256_fill_skip(highaddress as byte, address as long, value as byte, count 
     call do_dma()
 end sub
 
-sub dma_fill_skip(address as long, value as byte, count as word, skip as byte) shared static
-    call dma256_fill_skip(0, address, value, count, skip)
+sub dma_fill_skip(address as long, value as byte, count as word, skip as byte) shared static overload
+    call dma_fill_skip(0, address, value, count, skip)
 end sub
 
-sub dma256_poke(highaddress as byte, address as long, value as byte) shared static
+sub dma_poke(highaddress as byte, address as long, value as byte) shared static
     dmalist.option_0b = $0b
     dmalist.option_80 = $80
     dmalist.source_mb = 0
@@ -99,6 +97,6 @@ sub dma256_poke(highaddress as byte, address as long, value as byte) shared stat
     call do_dma()
 end sub
 
-sub dma_poke(address as long, value as byte) shared static
-    call dma256_poke(0, address, value)
+sub dma_poke(address as long, value as byte) shared static overload
+    call dma_poke(0, address, value)
 end sub
