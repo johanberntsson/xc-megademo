@@ -214,7 +214,7 @@ sub fc_putc(c as byte) static
     end if
 end sub
 
-sub fc_puts(s as long) shared static 
+sub fc_puts(s as word) shared static 
     for i as byte = 1 to peek(s)
         call fc_putc(peek(s + i))
     next 
@@ -225,7 +225,7 @@ sub fc_putsxy(x as byte, y as byte, s as string*80) shared static
     call fc_puts(@s)
 end sub
 
-sub fc_cursor(onoff as byte)
+sub fc_cursor(onoff as byte) static
     dim cursor as byte
     dim attribute as byte
 
