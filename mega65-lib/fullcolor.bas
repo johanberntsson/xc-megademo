@@ -13,10 +13,6 @@
 ' - gTopBorder
 ' - gBottomBorder
 
-const true = 1
-const false = 0
-const FCBUFSIZE = $ff
-
 const TOPBORDER_PAL = $58
 const BOTTOMBORDER_PAL = $1e8
 const TOPBORDER_NTSC = $27
@@ -194,8 +190,7 @@ function fc_allocPalMem as long (size as word) static
     return 0
 end function
 
-
-function fc_loadFCI as byte (filename as String * 20) static
+function fc_loadFCI as byte (filename as String * 20, bitmapAddress as long, paletteAddress as long) shared static
     dim info as byte
     dim options as byte
     dim paletteMemSize as long
@@ -220,6 +215,10 @@ function fc_loadFCI as byte (filename as String * 20) static
 
     call dma_copy(bitmapSourceAddress, infoBlocks(info).baseAdr, infoBlocks(info).size)
     return info
+end function
+
+function fc_loadFCI as byte (filename as String * 20) shared static overload
+    return fc_loadFCI(filename, clong(0), clong(0))
 end function
 
 sub fc_textcolor(color as byte) shared static
@@ -264,11 +263,13 @@ sub fc_gotoxy(x as byte, y as byte) shared static
     windows(gCurrentWindow).yc = y
 end sub
 
+sub fc_loadFCIPalette(info as byte) shared static
+    call fc_loadPalette(infoBlocks(info).paletteAdr, infoBlocks(info).paletteSize, infoBlocks(info).reservedSysPalette)
+end sub
+
 sub fc_displayFCI(info as byte, x0 as byte, y0 as byte, setPalette as byte) shared static
     call fc_addGraphicsRect(x0, y0, infoBlocks(info).columns, infoBlocks(info).rows, infoBlocks(info).baseAdr)
-    if setPalette then
-        call fc_loadPalette(infoBlocks(info).paletteAdr, infoBlocks(info).paletteSize, infoBlocks(info).reservedSysPalette)
-    end if 
+    if setPalette then call fc_loadFCIPalette(info)
 end sub
 
 function fc_displayFCIFile as byte (filename as String * 20, x0 as byte, y0 as byte) shared static
@@ -277,6 +278,27 @@ function fc_displayFCIFile as byte (filename as String * 20, x0 as byte, y0 as b
     call fc_displayFCI(info, x0, y0, true)
     return info
 end function
+
+sub fc_displayTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byte, t_w as byte, t_h as byte, mergeTiles as byte) shared static
+    dim x as byte
+    dim y as byte
+    dim screenAddr as long
+    dim charIndex as word
+
+    for y = t_y to t_y + t_h -1
+        screenAddr = gConfig.screenbase + 2 *(x0 + (y0 + y - t_y) * cword(gScreenColumns))
+        charIndex = cword(infoBlocks(info).baseAdr / 64) + t_x + (y * infoBlocks(info).columns)
+        for x = t_x to t_x + t_w - 1
+            'print x, y
+            ' set highbyte first to avoid blinking
+            ' while setting up the screeen
+            call dma_poke(screenAddr + 1, BYTE1(charIndex))
+            call dma_poke(screenAddr, BYTE0(charIndex))
+            screenAddr = screenAddr + 2
+            charIndex = charIndex + 1
+        next
+    next
+end sub
 
 sub fc_scrollup() shared static
     ' TODO
@@ -342,7 +364,7 @@ sub fc_putsxy(x as byte, y as byte, s as string*80) shared static
     call fc_puts(@s)
 end sub
 
-sub fc_setAutoCR(a as byte)
+sub fc_setAutoCR(a as byte) static
     autocr = a
 end sub
 

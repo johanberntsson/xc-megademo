@@ -1,5 +1,8 @@
 ' General utilities and defitions for the MEGA65 computer
 '
+shared const true = 1
+shared const false = 0
+
 shared const VIC2CTRL  = $d016
 shared const BORDERCOL = $d020
 shared const SCREENCOL = $d021
