@@ -63,6 +63,9 @@ dim gScreenColumns as byte shared ' number of screen columns (in characters)
 dim gTopBorder as word shared
 dim gBottomBorder as word shared
 
+dim nextFreeGraphMem as long ' location of next free graphics block in banks 4 & 5
+dim nextFreePalMem as long   ' location of next free palette memory block
+
 const MAX_WINDOWS =  8
 const MAX_FCI_BLOCKS = 16
 
@@ -71,6 +74,42 @@ dim infoBlocks(MAX_FCI_BLOCKS) as fciInfo @600
 
 dim autocr as byte
 dim csrflag as byte
+
+function nyblswap as byte (swp as byte) static
+    return ((swp and $0f) * 16) or ((swp and $f0) / 16)
+end function
+
+sub fc_zeroPalette(reservedSysPalette as byte) static
+    dim start as byte
+
+    call enable_io()
+    if reservedSysPalette then start = 16 else start = 0
+    for i as byte = start to 255
+        poke $d100 + i, 0
+        poke $d200 + i, 0
+        poke $d300 + i, 0
+    next
+end sub
+
+sub fc_loadPalette(adr as long, size as byte, reservedSysPalette as byte) static
+    dim colAdr as word
+    dim start as byte
+
+    if reservedSysPalette then start = 16 else start = 0
+
+    for i as byte = start to size
+        colAdr = cword(i) * 3
+        poke $d100 + i, nyblswap(peek(cword(adr) + colAdr))
+        poke $d200 + i, nyblswap(peek(cword(adr) + colAdr + 1))
+        poke $d300 + i, nyblswap(peek(cword(adr) + colAdr + 2))
+    next
+end sub
+
+sub fc_setPalette(num as byte, red as byte, green as byte, blue as byte) static
+    poke $d100 + num, nyblswap(red)
+    poke $d200 + num, nyblswap(green)
+    poke $d300 + num, nyblswap(blue)
+end sub
 
 sub fc_go8bit() shared static
     call enable_io()
@@ -87,9 +126,9 @@ sub fc_go8bit() shared static
     poke HOTREG, peek(HOTREG) or $80      ' enable hotreg
     poke VIC3CTRL, peek(VIC3CTRL) and $7f ' disable H640
     poke VIC3CTRL, peek(VIC3CTRL) and $7f ' disable H640
-    'fc_setPalette(0, 0, 0, 0);
-    'fc_setPalette(1, 255, 255, 255);
-    'fc_setPalette(2, 255, 0, 0);
+    call fc_setPalette(0, 0, 0, 0)
+    call fc_setPalette(1, 255, 255, 255)
+    call fc_setPalette(2, 255, 0, 0)
 end sub
 
 sub fc_fatal(message as String * 80) shared static
@@ -117,10 +156,46 @@ sub fc_addGraphicsRect(x0 as byte, y0 as byte, width as byte, height as byte, bi
     next
 end sub 
 
+sub fc_freeGraphAreas() static
+    dim i as byte
+    for i = 1 to MAX_WINDOWS: windows(i - 1).allocated = false: next
+    for i = 1 to MAX_FCI_BLOCKS: infoBlocks(i - 1).allocated = false: next
+    infoBlockCount = 0
+    nextFreeGraphMem = gConfig.dynamicBitmapBase
+    nextFreePalMem = gConfig.dynamicPaletteBase
+end sub
+
 function fc_allocGraphMem as long (size as word) static
-    ' TODO
-    return gConfig.dynamicbitmapbase
+    ' very simple graphics memory allocation scheme:
+    ' try to find space in 128K beginning at GRAPHBASE, without
+    ' crossing bank boundaries. If everything's full, bail out.
+    dim adr as long
+    adr = nextFreeGraphMem
+    if nextFreeGraphMem + size < gConfig.dynamicBitmapBase + $10000 then
+        nextFreeGraphMem = nextFreeGraphMem + size
+        return adr
+    end if 
+    if nextFreeGraphMem < gConfig.dynamicBitmapBase + $10000 then
+        nextFreeGraphMem = gConfig.dynamicBitmapBase + $10000
+        adr = nextFreeGraphMem
+    end if 
+    if nextFreeGraphMem + size < gConfig.dynamicBitmapBase + $20000 then
+        nextFreeGraphMem = nextFreeGraphMem + size
+        return adr
+    end if 
+    return 0
 end function
+
+function fc_allocPalMem as long (size as word) static
+    dim adr as long
+    adr = nextFreePalMem
+    if nextFreePalMem < $1e000 then ' TODO: don't hardcode boundaries
+        nextFreePalMem = nextFreePalMem + size
+        return adr
+    end if
+    return 0
+end function
+
 
 function fc_loadFCI as byte (filename as String * 20) static
     dim info as byte
@@ -268,10 +343,6 @@ sub fc_screenmode(h640 as byte, v400 as byte, rows as byte) static
 end sub
 
 sub fc_real_init(h640 as byte, v400 as byte, rows as byte) static
-    dim i as byte
-    for i = 1 to MAX_WINDOWS: windows(i).allocated = false: next
-    for i = 1 to MAX_FCI_BLOCKS: infoBlocks(i).allocated = false: next
-
     call enable_io()
 
     if peek($d06f) and 128 then
@@ -282,8 +353,11 @@ sub fc_real_init(h640 as byte, v400 as byte, rows as byte) static
         gBottomBorder = BOTTOMBORDER_PAL
     end if
 
+    call fc_freeGraphAreas()
     poke BORDERCOL, BLACK
     poke SCREENCOL, BLACK
+
+    'TODO reserveredBitmapFile
 
     autoCR = TRUE
 
@@ -294,61 +368,6 @@ end sub
 sub fc_gotoxy(x as byte, y as byte) shared static 
     windows(gCurrentWindow).xc = x
     windows(gCurrentWindow).yc = y
-end sub
-
-function nyblswap as byte (swp as byte) static
-    ' TODO: replace with assembler
-    dim s as word
-    dim c as byte
-
-    s = cword(swp)
-    ' asl
-    s = s * 2
-    c = 0: if s > 255 then s = s - 256: c = 1
-    ' adc #$80
-    s = s + 128 + c
-    c = 0: if s > 255 then s = s - 256: c = 1
-    ' rol
-    s = (s * 2) + c
-    c = 0: if s > 255 then s = s - 256: c = 1
-    ' asl
-    s = s * 2
-    c = 0: if s > 255 then s = s - 256: c = 1
-    ' adc #$80
-    s = s + 128 + c
-    c = 0: if s > 255 then s = s - 256: c = 1
-    ' rol
-    s = (s * 2) + c
-    c = 0: if s > 255 then s = s - 256: c = 1
-    return s
-end function
-
-sub fc_zeroPalette(reservedSysPalette as byte) static
-    dim start as byte
-
-    call enable_io()
-    if reservedSysPalette then start = 16 else start = 0
-    for i as byte = start to 255
-        poke $d100 + i, 0
-        poke $d200 + i, 0
-        poke $d300 + i, 0
-    next
-end sub
-
-sub fc_loadPalette(adr as long, size as byte, reservedSysPalette as byte) static
-    dim colAdr as word
-    dim start as byte
-    dim offset as word
-
-    if reservedSysPalette then start = 16 else start = 0
-
-    for i as byte = start to size
-        offset = cword(i)
-        colAdr = offset * 3
-        poke $d100 + offset, nyblswap(peek(cword(adr) + colAdr))
-        poke $d200 + offset, nyblswap(peek(cword(adr) + colAdr + 1))
-        poke $d300 + offset, nyblswap(peek(cword(adr) + colAdr + 2))
-    next
 end sub
 
 sub fc_displayFCI(info as byte, x0 as byte, y0 as byte, setPalette as byte) shared static
@@ -386,8 +405,8 @@ sub fc_plotPetsciiChar(x as byte, y as byte, c as byte, color as byte, attribute
 end sub
 
 function asciiToPetscii as byte (c as byte) static
-    ' TODO: could be made much faster with translation table
-    ' if c = '_' then return 100
+    ' could be made much faster with translation table
+    'TODO if c = '_' then return 100
     if c >= 64 and c <= 95 then return c - 64
     if c >= 96 and c < 192 then return c - 32
     if c >= 192 then return c - 128
@@ -450,8 +469,7 @@ sub fc_init(h640 as byte, v400 as byte, rows as byte) shared static
     gConfig.reservedbitmapbase = $14000
     gConfig.reservedpalettebase = $15000
     gConfig.dynamicpalettebase = $15300
-    'gConfig.dynamicbitmapbase = $40000
-    gConfig.dynamicbitmapbase = $16000
+    gConfig.dynamicbitmapbase = $40000
     gConfig.colorbase = $81000 ' $0ff ...
     call fc_real_init(h640, v400, rows)
 end sub

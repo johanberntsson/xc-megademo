@@ -1,7 +1,7 @@
 # define the paths to suppprting programs
 C1541 := c1541
 XEMU := xemu-xmega65
-DASM := ../../dasm/dasm
+DASM := ../../dasm/bin/dasm
 XCBASIC3 := ../bin/Linux/xcbasic3
 # generated binaries
 PRG := bin/demo.prg
