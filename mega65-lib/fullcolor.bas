@@ -100,15 +100,13 @@ sub fc_fatal(message as String * 80) shared static
 end sub
 
 sub fc_addGraphicsRect(x0 as byte, y0 as byte, width as byte, height as byte, bitmapData as long) static
-    dim x as byte
-    dim y as byte
     dim adr as long
     dim currentCharIdx as word
 
     currentCharIdx = cword(bitmapData / 64)
 
-    for y = y0 to y0 + height - 1
-        for x = x0 to x0 + width - 1
+    for y as byte = y0 to y0 + height - 1
+        for x as byte = x0 to x0 + width - 1
             adr = gConfig.screenbase + (x * 2) + (y * cword(gScreenColumns) * 2)
             ' set highbyte first to avoid blinking
             ' while setting up the screeen
@@ -140,7 +138,7 @@ function fc_loadFCI as byte (filename as String * 20) static
     infoBlocks(info).rows = peek($a005)
     infoBlocks(info).columns = peek($a006)
     infoBlocks(info).paletteSize  = peek($a008)
-    infoBlocks(info).paletteAdr = $a007
+    infoBlocks(info).paletteAdr = $a009
     infoBlocks(info).size  = cword(64) * infoBlocks(info).rows * infoBlocks(info).columns
     paletteMemSize = (clong(1) + infoBlocks(info).paletteSize) * 3
     bitmapSourceAddress = $a009 + paletteMemSize + 3 ' 3 is for IMG
@@ -298,8 +296,59 @@ sub fc_gotoxy(x as byte, y as byte) shared static
     windows(gCurrentWindow).yc = y
 end sub
 
-sub fc_loadPalette(paletteAdr as long, paletteSize as byte, reservedSysPalette as byte) static
-    ' TODO
+function nyblswap as byte (swp as byte) static
+    ' TODO: replace with assembler
+    dim s as word
+    dim c as byte
+
+    s = cword(swp)
+    ' asl
+    s = s * 2
+    c = 0: if s > 255 then s = s - 256: c = 1
+    ' adc #$80
+    s = s + 128 + c
+    c = 0: if s > 255 then s = s - 256: c = 1
+    ' rol
+    s = (s * 2) + c
+    c = 0: if s > 255 then s = s - 256: c = 1
+    ' asl
+    s = s * 2
+    c = 0: if s > 255 then s = s - 256: c = 1
+    ' adc #$80
+    s = s + 128 + c
+    c = 0: if s > 255 then s = s - 256: c = 1
+    ' rol
+    s = (s * 2) + c
+    c = 0: if s > 255 then s = s - 256: c = 1
+    return s
+end function
+
+sub fc_zeroPalette(reservedSysPalette as byte) static
+    dim start as byte
+
+    call enable_io()
+    if reservedSysPalette then start = 16 else start = 0
+    for i as byte = start to 255
+        poke $d100 + i, 0
+        poke $d200 + i, 0
+        poke $d300 + i, 0
+    next
+end sub
+
+sub fc_loadPalette(adr as long, size as byte, reservedSysPalette as byte) static
+    dim colAdr as word
+    dim start as byte
+    dim offset as word
+
+    if reservedSysPalette then start = 16 else start = 0
+
+    for i as byte = start to size
+        offset = cword(i)
+        colAdr = offset * 3
+        poke $d100 + offset, nyblswap(peek(cword(adr) + colAdr))
+        poke $d200 + offset, nyblswap(peek(cword(adr) + colAdr + 1))
+        poke $d300 + offset, nyblswap(peek(cword(adr) + colAdr + 2))
+    next
 end sub
 
 sub fc_displayFCI(info as byte, x0 as byte, y0 as byte, setPalette as byte) shared static
