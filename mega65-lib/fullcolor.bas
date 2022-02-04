@@ -33,7 +33,6 @@ type Config
 end type
 
 type TextWindow ' size = 9 bytes
-    allocated as byte  ' if this structure is allocated or not
     x0 as byte         ' current cursor X position
     y0 as byte         ' current cursor Y position
     width as byte      ' X origin
@@ -45,7 +44,6 @@ type TextWindow ' size = 9 bytes
 end type
 
 type fciInfo ' size = 13 bytes
-    allocated as byte  ' if this structure is allocated or not
     baseAdr as long     ' bitmap base address
     paletteAdr as long  ' palette data base addres
     paletteSize as byte ' size of palette (in palette entries)
@@ -63,6 +61,8 @@ dim gScreenColumns as byte shared ' number of screen columns (in characters)
 dim gTopBorder as word shared
 dim gBottomBorder as word shared
 
+dim windowCount as byte
+dim infoBlockCount as byte
 dim nextFreeGraphMem as long ' location of next free graphics block in banks 4 & 5
 dim nextFreePalMem as long   ' location of next free palette memory block
 
@@ -157,9 +157,7 @@ sub fc_addGraphicsRect(x0 as byte, y0 as byte, width as byte, height as byte, bi
 end sub 
 
 sub fc_freeGraphAreas() static
-    dim i as byte
-    for i = 1 to MAX_WINDOWS: windows(i - 1).allocated = false: next
-    for i = 1 to MAX_FCI_BLOCKS: infoBlocks(i - 1).allocated = false: next
+    windowCount = 0
     infoBlockCount = 0
     nextFreeGraphMem = gConfig.dynamicBitmapBase
     nextFreePalMem = gConfig.dynamicPaletteBase
@@ -204,11 +202,12 @@ function fc_loadFCI as byte (filename as String * 20) static
     dim bitmapSourceAddress as long
 
     ' find a free block
-    info = 0
+    if infoBlockCount = MAX_FCI_BLOCKS then call fc_fatal("Out of blocks")
+    info = infoBlockCount
+    infoBlockCount = infoBlockCount + 1
 
     load "tiles.fci", 8, $a002 ' compensate for two missing bytes
     options = peek($a006)
-    infoBlocks(info).allocated = true
     infoBlocks(info).reservedSysPalette = (options and 2)
     infoBlocks(info).rows = peek($a005)
     infoBlocks(info).columns = peek($a006)
@@ -222,28 +221,6 @@ function fc_loadFCI as byte (filename as String * 20) static
     call dma_copy(bitmapSourceAddress, infoBlocks(info).baseAdr, infoBlocks(info).size)
     return info
 end function
-
-
-sub fc_resetwin() shared static
-    ' reset text window to the whole screen
-    gCurrentWindow = 1
-    windows(gCurrentWindow).x0 = 0
-    windows(gCurrentWindow).y0 = 0
-    windows(gCurrentWindow).width = gScreenColumns
-    windows(gCurrentWindow).height = gScreenRows
-    windows(gCurrentWindow).xc = 0
-    windows(gCurrentWindow).yc = 0
-    windows(gCurrentWindow).attributes = 0
-    windows(gCurrentWindow).textcolor = 5
-end sub
-
-sub fc_setwin(win as byte) shared static
-    if win > MAX_WINDOWS or win < 1 then
-        call fc_fatal("fc_setwin: bad window number")
-    else 
-        gCurrentWindow = win
-    end if
-end sub
 
 sub fc_textcolor(color as byte) shared static
     windows(gCurrentWindow).textcolor = color
@@ -280,89 +257,6 @@ end sub
 
 sub adjustborders(extrarows as byte, extracolumns as byte) static
     ' TODO
-end sub
-
-sub fc_screenmode(h640 as byte, v400 as byte, rows as byte) static
-    ' starts full color mode in 640 * 400
-    dim extrarows as byte
-
-    call enable_io()
-    if rows = 0 then
-        if v400 then gScreenRows = 50 else gScreenRows = 25
-    else
-        gScreenRows = rows
-    end if
-
-    poke HOTREG, peek(HOTREG) or $80    ' enable HOTREG if previously disabled
-    poke VIC4CTRL, peek(VIC4CTRL) or $5 ' FC & 16 bit chars
-
-    if h640 then
-        poke VIC3CTRL, peek(VIC3CTRL) or $80 ' enable H640
-        poke VIC2CTRL, peek(VIC2CTRL) or $1  ' shift one pixel right (VIC3 bug)
-        gScreenColumns = 80
-    else
-        poke VIC3CTRL, peek(VIC3CTRL) and $7f ' disable H640
-        gScreenColumns = 40
-    end if
-
-    if v400 then
-        poke VIC3CTRL, peek(VIC3CTRL) or $08 ' enable V400
-        extrarows = gScreenRows - 50
-    else
-        poke VIC3CTRL, peek(VIC3CTRL) and $f7 ' enable V400
-        extrarows = 2*(gScreenRows - 25)
-    end if
-
-    gScreenSize = cword(gScreenRows) * gScreenColumns
-    call dma_fill_skip(gConfig.screenbase, 32, gScreenSize, 2)
-    call dma_fill($ff, gConfig.colorbase, 0, 2 * gScreenSize)
-
-    poke HOTREG, peek(HOTREG) and $7f ' disable HOTREG
-
-    if extrarows > 0 then call adjustborders(extrarows, 0)
-
-    ' move color RAM because of stupid CBDOS himem usage
-    poke COLPTR, BYTE0(gConfig.colorbase)
-    poke COLPTR + 1, BYTE1(gConfig.colorbase)
-
-    ' set CHARCOUNT to the number of columns on screen
-    poke CHRCOUNT, gScreenColumns
-    ' *2 to have 2 screen bytes == 1 character
-    poke LINESTEP_LO, gScreenColumns * 2
-    poke LINESTEP_HI, 0
-
-    poke DISPROWS, gScreenRows
-
-    poke SCNPTR, BYTE0(gConfig.screenbase)
-    poke SCNPTR + 1, BYTE1(gConfig.screenbase)
-    poke SCNPTR + 2, BYTE2(gConfig.screenbase)
-    poke SCNPTR + 3, 0 ' can't put the screen in attic ram
-
-    call fc_resetwin()
-    call fc_clrscr()
-end sub
-
-sub fc_real_init(h640 as byte, v400 as byte, rows as byte) static
-    call enable_io()
-
-    if peek($d06f) and 128 then
-        gTopBorder = TOPBORDER_NTSC
-        gBottomBorder = BOTTOMBORDER_NTSC
-    else
-        gTopBorder = TOPBORDER_PAL
-        gBottomBorder = BOTTOMBORDER_PAL
-    end if
-
-    call fc_freeGraphAreas()
-    poke BORDERCOL, BLACK
-    poke SCREENCOL, BLACK
-
-    'TODO reserveredBitmapFile
-
-    autoCR = TRUE
-
-    call fc_screenmode(h640, v400, rows)
-    call fc_textcolor(GREEN)
 end sub
 
 sub fc_gotoxy(x as byte, y as byte) shared static 
@@ -448,6 +342,45 @@ sub fc_putsxy(x as byte, y as byte, s as string*80) shared static
     call fc_puts(@s)
 end sub
 
+sub fc_setAutoCR(a as byte)
+    autocr = a
+end sub
+
+sub fc_setwin(win as byte) shared static
+    if win >= MAX_WINDOWS then call fc_fatal("bad window number")
+    gCurrentWindow = win
+end sub
+
+function fc_makeWin as byte (x0 as byte, y0 as byte, width as byte, height as byte) static
+    dim w as byte
+    if windowCount = MAX_WINDOWS then call fc_fatal("too many windows")
+    w = windowCount
+    windowCount = windowCount + 1
+    windows(w).x0 = x0
+    windows(w).y0 = y0
+    windows(w).width = width
+    windows(w).height = height
+    windows(w).xc = 0
+    windows(w).yc = 0
+    windows(w).attributes = 0
+    windows(w).textcolor = 5
+    return w
+end function
+
+sub fc_resetwin() shared static
+    ' reset text window to the whole screen
+    gCurrentWindow = 0
+    windows(gCurrentWindow).x0 = 0
+    windows(gCurrentWindow).y0 = 0
+    windows(gCurrentWindow).width = gScreenColumns
+    windows(gCurrentWindow).height = gScreenRows
+    windows(gCurrentWindow).xc = 0
+    windows(gCurrentWindow).yc = 0
+    windows(gCurrentWindow).attributes = 0
+    windows(gCurrentWindow).textcolor = 5
+end sub
+
+
 sub fc_cursor(onoff as byte) static
     dim cursor as byte
     dim attribute as byte
@@ -461,6 +394,89 @@ sub fc_cursor(onoff as byte) static
         attribute = 0
     end if
     call fc_plotPetsciiChar(windows(gCurrentWindow).xc + windows(gCurrentWindow).x0, windows(gCurrentWindow).yc + windows(gCurrentWindow).y0, cursor, windows(gCurrentWindow).textcolor, attribute)
+end sub
+
+sub fc_screenmode(h640 as byte, v400 as byte, rows as byte) static
+    ' starts full color mode in 640 * 400
+    dim extrarows as byte
+
+    call enable_io()
+    if rows = 0 then
+        if v400 then gScreenRows = 50 else gScreenRows = 25
+    else
+        gScreenRows = rows
+    end if
+
+    poke HOTREG, peek(HOTREG) or $80    ' enable HOTREG if previously disabled
+    poke VIC4CTRL, peek(VIC4CTRL) or $5 ' FC & 16 bit chars
+
+    if h640 then
+        poke VIC3CTRL, peek(VIC3CTRL) or $80 ' enable H640
+        poke VIC2CTRL, peek(VIC2CTRL) or $1  ' shift one pixel right (VIC3 bug)
+        gScreenColumns = 80
+    else
+        poke VIC3CTRL, peek(VIC3CTRL) and $7f ' disable H640
+        gScreenColumns = 40
+    end if
+
+    if v400 then
+        poke VIC3CTRL, peek(VIC3CTRL) or $08 ' enable V400
+        extrarows = gScreenRows - 50
+    else
+        poke VIC3CTRL, peek(VIC3CTRL) and $f7 ' enable V400
+        extrarows = 2*(gScreenRows - 25)
+    end if
+
+    gScreenSize = cword(gScreenRows) * gScreenColumns
+    call dma_fill_skip(gConfig.screenbase, 32, gScreenSize, 2)
+    call dma_fill($ff, gConfig.colorbase, 0, 2 * gScreenSize)
+
+    poke HOTREG, peek(HOTREG) and $7f ' disable HOTREG
+
+    if extrarows > 0 then call adjustborders(extrarows, 0)
+
+    ' move color RAM because of stupid CBDOS himem usage
+    poke COLPTR, BYTE0(gConfig.colorbase)
+    poke COLPTR + 1, BYTE1(gConfig.colorbase)
+
+    ' set CHARCOUNT to the number of columns on screen
+    poke CHRCOUNT, gScreenColumns
+    ' *2 to have 2 screen bytes == 1 character
+    poke LINESTEP_LO, gScreenColumns * 2
+    poke LINESTEP_HI, 0
+
+    poke DISPROWS, gScreenRows
+
+    poke SCNPTR, BYTE0(gConfig.screenbase)
+    poke SCNPTR + 1, BYTE1(gConfig.screenbase)
+    poke SCNPTR + 2, BYTE2(gConfig.screenbase)
+    poke SCNPTR + 3, 0 ' can't put the screen in attic ram
+
+    call fc_resetwin()
+    call fc_clrscr()
+end sub
+
+sub fc_real_init(h640 as byte, v400 as byte, rows as byte) static
+    call enable_io()
+
+    if peek($d06f) and 128 then
+        gTopBorder = TOPBORDER_NTSC
+        gBottomBorder = BOTTOMBORDER_NTSC
+    else
+        gTopBorder = TOPBORDER_PAL
+        gBottomBorder = BOTTOMBORDER_PAL
+    end if
+
+    call fc_freeGraphAreas()
+    poke BORDERCOL, BLACK
+    poke SCREENCOL, BLACK
+
+    'TODO reserveredBitmapFile
+
+    autoCR = TRUE
+
+    call fc_screenmode(h640, v400, rows)
+    call fc_textcolor(GREEN)
 end sub
 
 sub fc_init(h640 as byte, v400 as byte, rows as byte) shared static
