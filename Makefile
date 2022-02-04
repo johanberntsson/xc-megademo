@@ -27,6 +27,7 @@ $(PRG): $(BASICSOURCE)
 	$(XCBASIC3) $(MAINSOURCE) $(PRG) -d $(DASM)
 
 $(DISCNAME): $(PRG) $(FCIS)
+	rm -f $(DISCNAME)
 	cat c65bin/c65toc64wrapper.prg $(PRG) > bin/autoboot.c65
 	$(C1541) -format xc-megademo,sk d81 $(DISCNAME)
 	$(C1541) $(DISCNAME) -write bin/autoboot.c65

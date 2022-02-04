@@ -15,6 +15,7 @@
 
 const true = 1
 const false = 0
+const FCBUFSIZE = $ff
 
 const TOPBORDER_PAL = $58
 const BOTTOMBORDER_PAL = $1e8
@@ -23,42 +24,42 @@ const BOTTOMBORDER_NTSC = $1b7
 const CURSOR_CHARACTER = $5f
 
 type Config
-    screenbase as long
-    reservedbitmapbase as long
-    reservedpalettebase as long
-    dynamicpalettebase as long
-    dynamicbitmapbase as long
-    colorbase as long
+    screenbase as long          ' location of 16 bit screen
+    reservedbitmapbase as long  ' reserved bitmap graphics graphics
+    reservedpalettebase as long ' reserved system palette
+    dynamicpalettebase as long  ' loaded palettes base
+    dynamicbitmapbase as long   ' loaded bitmaps base
+    colorbase as long           ' attribute/color ram
 end type
 
-' TextInfo: 8 bytes
-type TextWindow 
-    x0 as byte
-    y0 as byte
-    width as byte
-    height as byte
-    xc as byte
-    yc as byte
-    attributes as byte
-    textcolor as byte
+type TextWindow ' size = 9 bytes
+    allocated as byte  ' if this structure is allocated or not
+    x0 as byte         ' current cursor X position
+    y0 as byte         ' current cursor Y position
+    width as byte      ' X origin
+    height as byte     ' Y origin
+    xc as byte         ' window width
+    yc as byte         ' window height
+    textcolor as byte  ' current window text color
+    attributes as byte ' current window extended text attributes
 end type
 
-' fciInfo: 12 bytes
-type fciInfo
-    baseAdr as long
-    paletteAdr as long
-    paletteSize as byte
-    reservedSysPalette as byte
-    columns as byte
-    rows as byte
-    size as word
+type fciInfo ' size = 13 bytes
+    allocated as byte  ' if this structure is allocated or not
+    baseAdr as long     ' bitmap base address
+    paletteAdr as long  ' palette data base addres
+    paletteSize as byte ' size of palette (in palette entries)
+    reservedSysPalette as byte ' if true, don't use colors 0-15
+    columns as byte     ' number of character columns for image
+    rows as byte        ' number of character rows
+    size as word        ' size of bitmap
 end type
 
 dim gConfig as Config shared
-dim gCurrentWindow as byte shared
+dim gCurrentWindow as byte shared ' current window (1 - MAX_WINDOWS)
 dim gScreenSize as word shared
-dim gScreenRows as byte shared
-dim gScreenColumns as byte shared
+dim gScreenRows as byte shared    ' number of screen rows (in characters)
+dim gScreenColumns as byte shared ' number of screen columns (in characters)
 dim gTopBorder as word shared
 dim gBottomBorder as word shared
 
@@ -70,19 +71,6 @@ dim infoBlocks(MAX_FCI_BLOCKS) as fciInfo @600
 
 dim autocr as byte
 dim csrflag as byte
-
-sub fc_resetwin() shared static
-    ' reset text window to the whole screen
-    gCurrentWindow = 1
-    windows(gCurrentWindow).x0 = 0
-    windows(gCurrentWindow).y0 = 0
-    windows(gCurrentWindow).width = gScreenColumns
-    windows(gCurrentWindow).height = gScreenRows
-    windows(gCurrentWindow).xc = 0
-    windows(gCurrentWindow).yc = 0
-    windows(gCurrentWindow).attributes = 0
-    windows(gCurrentWindow).textcolor = 5
-end sub
 
 sub fc_go8bit() shared static
     call enable_io()
@@ -105,9 +93,75 @@ sub fc_go8bit() shared static
 end sub
 
 sub fc_fatal(message as String * 80) shared static
+    ' you can add messages before calling fc_fatal with print,
+    ' and they will appear on the screen afterwards
     call fc_go8bit()
-    print "{clear}fatal error"
-    print message
+    print "fatal error:", message
+end sub
+
+sub fc_addGraphicsRect(x0 as byte, y0 as byte, width as byte, height as byte, bitmapData as long) static
+    dim x as byte
+    dim y as byte
+    dim adr as long
+    dim currentCharIdx as word
+
+    currentCharIdx = cword(bitmapData / 64)
+
+    for y = y0 to y0 + height - 1
+        for x = x0 to x0 + width - 1
+            adr = gConfig.screenbase + (x * 2) + (y * cword(gScreenColumns) * 2)
+            ' set highbyte first to avoid blinking
+            ' while setting up the screeen
+            call dma_poke(adr + 1, BYTE1(currentCharIdx))
+            call dma_poke(adr, BYTE0(currentCharIdx))
+            currentCharIdx = currentCharIdx + 1
+        next
+    next
+end sub 
+
+function fc_allocGraphMem as long (size as word) static
+    ' TODO
+    return gConfig.dynamicbitmapbase
+end function
+
+function fc_loadFCI as byte (filename as String * 20) static
+    dim info as byte
+    dim options as byte
+    dim paletteMemSize as long
+    dim bitmapSourceAddress as long
+
+    ' find a free block
+    info = 0
+
+    load "tiles.fci", 8, $a002 ' compensate for two missing bytes
+    options = peek($a006)
+    infoBlocks(info).allocated = true
+    infoBlocks(info).reservedSysPalette = (options and 2)
+    infoBlocks(info).rows = peek($a005)
+    infoBlocks(info).columns = peek($a006)
+    infoBlocks(info).paletteSize  = peek($a008)
+    infoBlocks(info).paletteAdr = $a007
+    infoBlocks(info).size  = cword(64) * infoBlocks(info).rows * infoBlocks(info).columns
+    paletteMemSize = (clong(1) + infoBlocks(info).paletteSize) * 3
+    bitmapSourceAddress = $a009 + paletteMemSize + 3 ' 3 is for IMG
+    infoBlocks(info).baseAdr = fc_allocGraphMem(infoBlocks(info).size)
+
+    call dma_copy(bitmapSourceAddress, infoBlocks(info).baseAdr, infoBlocks(info).size)
+    return info
+end function
+
+
+sub fc_resetwin() shared static
+    ' reset text window to the whole screen
+    gCurrentWindow = 1
+    windows(gCurrentWindow).x0 = 0
+    windows(gCurrentWindow).y0 = 0
+    windows(gCurrentWindow).width = gScreenColumns
+    windows(gCurrentWindow).height = gScreenRows
+    windows(gCurrentWindow).xc = 0
+    windows(gCurrentWindow).yc = 0
+    windows(gCurrentWindow).attributes = 0
+    windows(gCurrentWindow).textcolor = 5
 end sub
 
 sub fc_setwin(win as byte) shared static
@@ -216,6 +270,10 @@ sub fc_screenmode(h640 as byte, v400 as byte, rows as byte) static
 end sub
 
 sub fc_real_init(h640 as byte, v400 as byte, rows as byte) static
+    dim i as byte
+    for i = 1 to MAX_WINDOWS: windows(i).allocated = false: next
+    for i = 1 to MAX_FCI_BLOCKS: infoBlocks(i).allocated = false: next
+
     call enable_io()
 
     if peek($d06f) and 128 then
@@ -240,12 +298,23 @@ sub fc_gotoxy(x as byte, y as byte) shared static
     windows(gCurrentWindow).yc = y
 end sub
 
-sub fc_displayFCIFile(filename as String * 20, x0 as byte, y0 as byte) shared static
-    'fciInfo *info;
-    'info = fc_loadFCI(filename, 0, 0);
-    'fc_displayFCI(info, x0, y0, true);
-    'TOOD return info;
+sub fc_loadPalette(paletteAdr as long, paletteSize as byte, reservedSysPalette as byte) static
+    ' TODO
 end sub
+
+sub fc_displayFCI(info as byte, x0 as byte, y0 as byte, setPalette as byte) shared static
+    call fc_addGraphicsRect(x0, y0, infoBlocks(info).columns, infoBlocks(info).rows, infoBlocks(info).baseAdr)
+    if setPalette then
+        call fc_loadPalette(infoBlocks(info).paletteAdr, infoBlocks(info).paletteSize, infoBlocks(info).reservedSysPalette)
+    end if 
+end sub
+
+function fc_displayFCIFile as byte (filename as String * 20, x0 as byte, y0 as byte) shared static
+    dim info as byte
+    info = fc_loadFCI(filename)
+    call fc_displayFCI(info, x0, y0, true)
+    return info
+end function
 
 sub fc_scrollup() shared static
     ' TODO
@@ -332,7 +401,8 @@ sub fc_init(h640 as byte, v400 as byte, rows as byte) shared static
     gConfig.reservedbitmapbase = $14000
     gConfig.reservedpalettebase = $15000
     gConfig.dynamicpalettebase = $15300
-    gConfig.dynamicbitmapbase = $40000
+    'gConfig.dynamicbitmapbase = $40000
+    gConfig.dynamicbitmapbase = $16000
     gConfig.colorbase = $81000 ' $0ff ...
     call fc_real_init(h640, v400, rows)
 end sub
