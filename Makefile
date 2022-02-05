@@ -3,44 +3,43 @@ C1541 := c1541
 XEMU := xemu-xmega65
 DASM := ../../dasm/bin/dasm
 XCBASIC3 := ../bin/Linux/xcbasic3
-# generated binaries
-PRG := bin/demo.prg
-DISCNAME := xc-megademo.d81
-# all basic source files
-MAINSOURCE := demo.bas
-BASICSOURCE :=  $(MAINSOURCE) $(wildcard **/*.bas)
+
+# basic library source files
+LIBSOURCE :=  $(wildcard **/*.bas)
+
 # png files to convert and add to the floppy
 PNGS := $(wildcard img-src/*.png)
 FCIS := $(subst img-src, res, $(PNGS:%.png=%.fci))
 
 # phony target is simply a target that is always out-of-date
-.PHONY: mega65, mega65-prg, all, clean
+.PHONY: demo, game, all, clean
 
-all: mega65
+all: demo
+
+demo: demo.d81
+	$(XEMU) -8 demo.d81
+
+game: game.d81
+	$(XEMU) -8 game.d81
+
 
 # convert png to fci (MEGA65 full color mode graphics)
 res/%.fci: img-src/%.png
 	python3 tools/png2fci.py -v0r $< $@
 
-$(PRG): $(BASICSOURCE)
+bin/%.prg: %.bas $(LIBSOURCE)
 	mkdir -p bin res
-	$(XCBASIC3) $(MAINSOURCE) $(PRG) -d $(DASM)
+	$(XCBASIC3) $< $@ -d $(DASM)
 
-$(DISCNAME): $(PRG) $(FCIS)
-	rm -f $(DISCNAME)
-	cat c65bin/c65toc64wrapper.prg $(PRG) > bin/autoboot.c65
-	$(C1541) -format xc-megademo,sk d81 $(DISCNAME)
-	$(C1541) $(DISCNAME) -write bin/autoboot.c65
+%.d81: bin/%.prg $(FCIS)
+	rm -f $@
+	cat c65bin/c65toc64wrapper.prg bin/$*.prg > bin/autoboot.c65
+	$(C1541) -format xc-megademo,sk d81 $@
+	$(C1541) $@ -write bin/autoboot.c65
 	for filename in res/*; do \
-	    $(C1541) $(DISCNAME) -write $$filename; \
+	    $(C1541) $@ -write $$filename; \
 	done
 
-mega65: $(DISCNAME)
-	$(XEMU) -8 $(DISCNAME)
-
-mega65-prg: $(PRG)
-	$(XEMU) -prg $(PRG)
-
 clean:
-	rm -rf bin res $(DISCNAME)
+	rm -rf bin res *.d81
 
