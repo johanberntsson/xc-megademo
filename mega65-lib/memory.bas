@@ -121,6 +121,31 @@ sub dma_poke(highaddress as byte, address as long, value as byte) shared static
     call do_dma()
 end sub
 
+function dma_peek as byte (highaddress as byte, address as long) shared static
+    dim dmabyte as byte
+    dmalist.option_0b = $0b
+    dmalist.option_80 = $80
+    dmalist.source_mb = highaddress
+    dmalist.option_81 = $81
+    dmalist.dest_mb = 0
+    dmalist.option_85 = $85
+    dmalist.dest_skip = 1
+    dmalist.end_of_options = 0
+    dmalist.command = 0
+    dmalist.sub_cmd = 0
+    dmalist.count = 1
+    dmalist.source_addr = cword(address)
+    dmalist.source_bank = BYTE2(address) and $0f
+    dmalist.dest_addr = @dmabyte
+    dmalist.dest_bank = 0
+    call do_dma()
+    return dmabyte
+end sub
+
+function dma_peek as byte (address as long) shared static overload
+    return dma_peek(0, address)
+end function
+
 sub dma_poke(address as long, value as byte) shared static overload
     call dma_poke(0, address, value)
 end sub

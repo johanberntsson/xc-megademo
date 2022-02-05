@@ -76,16 +76,16 @@ sub fc_zeroPalette(reservedSysPalette as byte) static
 end sub
 
 sub fc_loadPalette(adr as long, size as byte, reservedSysPalette as byte) static
-    dim colAdr as word
+    dim colAdr as long
     dim start as byte
 
     if reservedSysPalette then start = 16 else start = 0
 
     for i as byte = start to size
-        colAdr = cword(i) * 3
-        poke $d100 + i, nyblswap(peek(cword(adr) + colAdr))
-        poke $d200 + i, nyblswap(peek(cword(adr) + colAdr + 1))
-        poke $d300 + i, nyblswap(peek(cword(adr) + colAdr + 2))
+        colAdr = clong(i) * 3
+        poke $d100 + i, nyblswap(dma_peek(adr + colAdr))
+        poke $d200 + i, nyblswap(dma_peek(adr + colAdr + 1))
+        poke $d300 + i, nyblswap(dma_peek(adr + colAdr + 2))
     next
 end sub
 
@@ -185,7 +185,7 @@ function fc_allocPalMem as long (size as word) static
         nextFreePalMem = nextFreePalMem + size
         return adr
     end if
-    return 0
+    return 0 ' should never happen
 end function
 
 function fc_nextInfoBlock as byte () static
@@ -199,7 +199,7 @@ end function
 
 function fc_loadFCI as byte (info as byte, filename as String * 20) shared static
     dim options as byte
-    dim paletteMemSize as long
+    dim paletteMemSize as word
     dim bitmapSourceAddress as long
     dim base as word
 
@@ -217,14 +217,16 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
     infoBlocks(info).columns = peek(base + 6)
     options = peek(base + 7)
     infoBlocks(info).paletteSize  = peek(base + 8)
-    infoBlocks(info).paletteAdr = base + 9
 
     infoBlocks(info).reservedSysPalette = (options and 2)
     infoBlocks(info).size  = cword(64) * infoBlocks(info).rows * infoBlocks(info).columns
-    paletteMemSize = (clong(1) + infoBlocks(info).paletteSize) * 3
+    paletteMemSize = (cword(1) + infoBlocks(info).paletteSize) * 3
     bitmapSourceAddress = base + 9 + paletteMemSize + 3 ' 3 is for IMG
-    infoBlocks(info).baseAdr = fc_allocGraphMem(infoBlocks(info).size)
 
+    infoBlocks(info).paletteAdr = fc_allocPalMem(paletteMemSize)
+    call dma_copy(clong(base + 9), infoBlocks(info).paletteAdr, paletteMemSize)
+
+    infoBlocks(info).baseAdr = fc_allocGraphMem(infoBlocks(info).size)
     call dma_copy(bitmapSourceAddress, infoBlocks(info).baseAdr, infoBlocks(info).size)
     return info
 end function
