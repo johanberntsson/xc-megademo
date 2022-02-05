@@ -209,7 +209,7 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
     ' read #2, ...
     ' close 2
     ' but currently there is a bug stopping it in xc-basic 3
-    base = $a000
+    base = $6000
 
 
     load "tiles.fci", 8, base+2 ' compensate for two missing bytes

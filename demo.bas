@@ -10,8 +10,8 @@ main:
     call enable_40mhz()
     call fc_init(1, 1, 0, 0)
 
-    call fc_plotPetsciiChar(0, 10, $35, WHITE, 0)
-    call fc_plotPetsciiChar(2, 15, $30, RED, 0)
+    call fc_plotPetsciiChar(0, 20, $35, WHITE, 0)
+    call fc_plotPetsciiChar(2, 17, $30, RED, 0)
 
     'call fc_displayFCIFile("tiles.fci",0,0)
     tiles = fc_loadFCI("tiles.fci")
@@ -19,7 +19,7 @@ main:
     call fc_displayFCI(tiles, 0, 0, true)
     call fc_displayTile(tiles, 20, 20, 0, 0, 6, 7, true)
 
-    call fc_gotoxy(0,10)
+    call fc_gotoxy(0,14)
     call fc_puts("What is your name? ")
     call fc_textcolor(ORANGE)
     name = fc_input()
