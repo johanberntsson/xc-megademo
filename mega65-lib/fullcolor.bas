@@ -1,17 +1,5 @@
 ' Implements functions to set up and use the full color mode
 ' on the MEGA65 computer.
-'
-' Globals subroutines:
-' - fc_init
-' - fc_textcolor
-' - fc_plotPetsciiChar
-' 
-' Global variables
-' - gConfig
-' - gScreenRows
-' - gScreenColumns
-' - gTopBorder
-' - gBottomBorder
 
 const TOPBORDER_PAL = $58
 const BOTTOMBORDER_PAL = $1e8
@@ -54,7 +42,7 @@ dim gCurrentWindow as byte shared ' current window (1 - MAX_WINDOWS)
 dim gScreenSize as word shared
 dim gScreenRows as byte shared    ' number of screen rows (in characters)
 dim gScreenColumns as byte shared ' number of screen columns (in characters)
-dim gTopBorder as word shared
+dim gTopBorder as byte shared
 dim gBottomBorder as word shared
 
 dim windowCount as byte
@@ -101,6 +89,10 @@ sub fc_loadPalette(adr as long, size as byte, reservedSysPalette as byte) static
     next
 end sub
 
+sub fc_fadePalette(adr as long, size as byte, reservedSysPalette as byte, steps as byte, fadeOut as byte) static
+    'TODO
+end sub
+
 sub fc_setPalette(num as byte, red as byte, green as byte, blue as byte) static
     poke $d100 + num, nyblswap(red)
     poke $d200 + num, nyblswap(green)
@@ -132,6 +124,12 @@ sub fc_fatal(message as String * 80) shared static
     ' and they will appear on the screen afterwards
     call fc_go8bit()
     print "fatal error:", message
+    'end
+end sub
+
+sub fc_fatal() shared static overload
+    call fc_go8bit()
+    'end
 end sub
 
 sub fc_addGraphicsRect(x0 as byte, y0 as byte, width as byte, height as byte, bitmapData as long) static
@@ -195,22 +193,32 @@ function fc_loadFCI as byte (filename as String * 20, bitmapAddress as long, pal
     dim options as byte
     dim paletteMemSize as long
     dim bitmapSourceAddress as long
+    dim base as word
+
+    ' TODO: this should be rewritten as
+    ' open 2,8,2,"tiles"
+    ' read #2, header
+    ' read #2, ...
+    ' close 2
+    ' but currently there is a bug stopping it in xc-basic 3
+    base = $a000
 
     ' find a free block
     if infoBlockCount = MAX_FCI_BLOCKS then call fc_fatal("Out of blocks")
     info = infoBlockCount
     infoBlockCount = infoBlockCount + 1
 
-    load "tiles.fci", 8, $a002 ' compensate for two missing bytes
-    options = peek($a006)
+    load "tiles.fci", 8, base+2 ' compensate for two missing bytes
+    infoBlocks(info).rows = peek(base + 5)
+    infoBlocks(info).columns = peek(base + 6)
+    options = peek(base + 7)
+    infoBlocks(info).paletteSize  = peek(base + 8)
+    infoBlocks(info).paletteAdr = base + 9
+
     infoBlocks(info).reservedSysPalette = (options and 2)
-    infoBlocks(info).rows = peek($a005)
-    infoBlocks(info).columns = peek($a006)
-    infoBlocks(info).paletteSize  = peek($a008)
-    infoBlocks(info).paletteAdr = $a009
     infoBlocks(info).size  = cword(64) * infoBlocks(info).rows * infoBlocks(info).columns
     paletteMemSize = (clong(1) + infoBlocks(info).paletteSize) * 3
-    bitmapSourceAddress = $a009 + paletteMemSize + 3 ' 3 is for IMG
+    bitmapSourceAddress = base + 9 + paletteMemSize + 3 ' 3 is for IMG
     infoBlocks(info).baseAdr = fc_allocGraphMem(infoBlocks(info).size)
 
     call dma_copy(bitmapSourceAddress, infoBlocks(info).baseAdr, infoBlocks(info).size)
@@ -220,10 +228,6 @@ end function
 function fc_loadFCI as byte (filename as String * 20) shared static overload
     return fc_loadFCI(filename, clong(0), clong(0))
 end function
-
-sub fc_textcolor(color as byte) shared static
-    windows(gCurrentWindow).textcolor = color
-end sub
 
 function fc_kbhit as byte () static
     return peek($d610)
@@ -250,22 +254,48 @@ function fc_getkey as byte () shared static
     return fc_cgetc()
 end function
 
-sub fc_clrscr() shared static
-    ' TODO
+sub fc_plotExtChar(x as byte, y as byte, c as byte) shared static
+    dim adr as long
+    dim charIdx as word
+    charIdx = cword(gConfig.reservedBitmapBase / 64) + c
+    adr = (x * 2) + (y * clong(gScreenColumns) * 2)
+    call dma_poke(gConfig.screenBase + adr, BYTE1(charIdx))
+    call dma_poke(gConfig.screenBase + adr + 1, BYTE0(charIdx))
 end sub
 
-sub adjustborders(extrarows as byte, extracolumns as byte) static
-    ' TODO
-end sub
+sub adjustBorders(extrarows as byte, extracolumns as byte) static
+    dim extraTopRows as byte
+    dim extraBottomRows as byte
+    dim newBottomBorder as int
 
-sub fc_gotoxy(x as byte, y as byte) shared static 
-    windows(gCurrentWindow).xc = x
-    windows(gCurrentWindow).yc = y
+    extraTopRows = 0
+    extraBottomRows = 0
+
+    extraColumns = extraColumns + 1 ' TODO: support for extra columns
+    extraBottomRows = extraRows / 2
+    extraTopRows = extraRows - extraBottomRows
+
+    poke 53320, gTopBorder - (extraTopRows * 8) ' top border position
+    poke 53326, gTopBorder - (extraTopRows * 8) ' top text position
+
+    newBottomBorder = gBottomBorder + (extraBottomRows * 8)
+
+    poke 53322, BYTE0(newBottomBorder)
+    poke 53323, BYTE1(newBottomBorder)
+
+    poke 53371, gScreenRows
 end sub
 
 sub fc_loadFCIPalette(info as byte) shared static
     call fc_loadPalette(infoBlocks(info).paletteAdr, infoBlocks(info).paletteSize, infoBlocks(info).reservedSysPalette)
 end sub
+
+sub fc_fadeFCI(info as byte, x0 as byte, y0 as byte, steps as byte) static
+    call fc_zeroPalette(infoBlocks(info).reservedSysPalette)
+    call fc_addGraphicsRect(x0, y0, infoBlocks(info).columns, infoBlocks(info).rows, infoBlocks(info).baseAdr)
+    call fc_fadePalette(infoBlocks(info).paletteAdr, infoBlocks(info).paletteSize, infoBlocks(info).reservedSysPalette, steps, false)
+end sub
+
 
 sub fc_displayFCI(info as byte, x0 as byte, y0 as byte, setPalette as byte) shared static
     call fc_addGraphicsRect(x0, y0, infoBlocks(info).columns, infoBlocks(info).rows, infoBlocks(info).baseAdr)
@@ -300,15 +330,66 @@ sub fc_displayTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byt
     next
 end sub
 
-sub fc_scrollup() shared static
-    ' TODO
+sub fc_line(x as byte, y as byte, width as byte, character as byte, col as byte) shared static
+    dim w as word
+    dim bas as long
+
+    w = cword(width)
+    bas = 2 * (x + windows(gCurrentWindow).x0 + clong(gScreenColumns) * (windows(gCurrentWindow).y0 + y))
+
+    ' use DMAgic to fill FCM screens with skip byte... PGS, I love you!
+    call dma_fill_skip(gConfig.screenBase + bas, character, w, 2)
+    call dma_fill_skip(gConfig.screenBase + bas + 1, 0, w, 2)
+    call dma_fill_skip(gConfig.colorBase + bas, 0, w, 2)
+    call dma_fill_skip(gConfig.colorBase + bas + 1, col, w, 2)
+end sub
+
+sub fc_block(x0 as byte, y0 as byte, width as byte, height as byte, character as byte, col as byte) shared static
+    for y as byte = 0 to  height - 1
+        call fc_line(x0, y0 + y, width, character, col)
+    next
+end sub
+
+sub fc_scrollUp() shared static
+    dim bas0 as long
+    dim bas1 as long
+    dim w as word
+    w = cword(windows(gCurrentWindow).width) * 2
+
+    for y as byte = windows(gCurrentWindow).y0 to windows(gCurrentWindow).y0 + windows(gCurrentWindow).height - 2
+        bas0 = gConfig.screenBase + (clong(windows(gCurrentWindow).x0) * 2 + (y * gScreenColumns * 2))
+        bas1 = gConfig.screenBase + (clong(windows(gCurrentWindow).x0) * 2 + ((y + 1) * gScreenColumns * 2))
+        call dma_copy(bas1, bas0, w)
+        bas0 = gConfig.colorBase + (clong(windows(gCurrentWindow).x0) * 2 + (y * gScreenColumns * 2))
+        bas1 = gConfig.colorBase + (clong(windows(gCurrentWindow).x0) * 2 + ((y + 1) * gScreenColumns * 2))
+        call dma_copy(bas1, bas0, w)
+    next
+    call fc_line(0, windows(gCurrentWindow).height - 1, windows(gCurrentWindow).width, 32, windows(gCurrentWindow).textcolor)
+end sub
+
+sub fc_scrollDown() shared static
+    dim bas0 as long
+    dim bas1 as long
+    dim w as word
+    w = cword(windows(gCurrentWindow).width) * 2
+
+    for y as byte = windows(gCurrentWindow).y0 + windows(gCurrentWindow).height - 2 to windows(gCurrentWindow).y0 step -1
+        bas0 = gConfig.screenBase + (clong(windows(gCurrentWindow).x0) * 2 + (y * gScreenColumns * 2))
+        bas1 = gConfig.screenBase + (clong(windows(gCurrentWindow).x0) * 2 + ((y + 1) * gScreenColumns * 2))
+        call dma_copy(bas0, bas1, w)
+        bas0 = gConfig.colorBase + (clong(windows(gCurrentWindow).x0) * 2 + (y * gScreenColumns * 2))
+        bas1 = gConfig.colorBase + (clong(windows(gCurrentWindow).x0) * 2 + ((y + 1) * gScreenColumns * 2))
+        call dma_copy(bas0, bas1, w)
+    next
+
+    call fc_line(0, 0, windows(gCurrentWindow).width, 32, windows(gCurrentWindow).textcolor)
 end sub
 
 sub cr() static 
     windows(gCurrentWindow).xc = 0
     windows(gCurrentWindow).yc = windows(gCurrentWindow).yc + 1
     if windows(gCurrentWindow).yc > windows(gCurrentWindow).height - 1 then
-        call fc_scrollup()
+        call fc_scrollUp()
         windows(gCurrentWindow).yc = windows(gCurrentWindow).height - 1
     end if 
 end sub
@@ -342,7 +423,7 @@ sub fc_putc(c as byte) static
             windows(gCurrentWindow).xc = 0
             windows(gCurrentWindow).yc = windows(gCurrentWindow).yc + 1
             if windows(gCurrentWindow).yc >= windows(gCurrentWindow).height then
-                call fc_scrollup()
+                call fc_scrollUp()
                 windows(gCurrentWindow).yc = windows(gCurrentWindow).height - 1
             end if
         end if 
@@ -359,13 +440,78 @@ sub fc_puts(s as word) shared static
     next 
 end sub
 
+sub fc_puts(s as String * 80) shared static overload
+    call fc_puts(@s)
+end sub
+
+sub fc_gotoxy(x as byte, y as byte) shared static 
+    windows(gCurrentWindow).xc = x
+    windows(gCurrentWindow).yc = y
+end sub
+
+
 sub fc_putsxy(x as byte, y as byte, s as string*80) shared static
     call fc_gotoxy(x, y)
     call fc_puts(@s)
 end sub
 
-sub fc_setAutoCR(a as byte) static
+sub fc_putcxy(x as byte, y as byte, c as byte) shared static
+    call fc_gotoxy(x, y)
+    call fc_putc(c)
+end sub
+
+function fc_wherex as byte () shared static
+    return windows(gCurrentWindow).xc
+end function
+
+function fc_wherey as byte () shared static
+    return windows(gCurrentWindow).yc
+end function
+
+sub fc_setAutoCR(a as byte) shared static
     autocr = a
+end sub
+
+sub fc_center(x as byte, y as byte, width as byte, text as String * 80) shared static
+    dim l as byte
+    l = len(text)
+    if l >= width - 2 then
+        call fc_gotoxy(x, y)
+        call fc_puts(@text)
+    else
+        call fc_gotoxy(x - 1 + width / 2 - l / 2, y)
+        call fc_puts(@text)
+    end if
+end sub
+
+sub fc_clrscr() shared static
+    call fc_block(0, 0, windows(gCurrentWindow).width, windows(gCurrentWindow).height, 32, windows(gCurrentWindow).textcolor)
+    call fc_gotoxy(0, 0)
+end sub
+
+sub fc_textcolor(color as byte) shared static
+    windows(gCurrentWindow).textcolor = color
+end sub
+
+
+function fc_getkeyP as byte (x as byte, y as byte, prompt as String * 80) shared static
+    call fc_emptyBuffer()
+    call fc_gotoxy(x, y)
+    call fc_textcolor(WHITE)
+    call fc_puts(@prompt)
+    return fc_cgetc()
+end sub
+
+sub fc_hlinexy(x as byte, y as byte, width as byte, lineChar as byte) shared static
+    for cgi as byte = x to x + width - 1
+        call fc_plotExtChar(windows(gCurrentWindow).x0 + x + cgi, windows(gCurrentWindow).y0 + y, lineChar)
+    next
+end sub
+
+sub fc_vlinexy(x as byte, y as byte, height as byte, lineChar as byte) shared static
+    for cgi as byte = y to y + height - 1
+        call fc_plotExtChar(windows(gCurrentWindow).x0 + x, windows(gCurrentWindow).y0 + y + cgi, lineChar)
+    next
 end sub
 
 sub fc_setwin(win as byte) shared static
@@ -403,7 +549,7 @@ sub fc_resetwin() shared static
 end sub
 
 
-sub fc_cursor(onoff as byte) static
+sub fc_cursor(onoff as byte) shared static
     dim cursor as byte
     dim attribute as byte
 
@@ -455,7 +601,7 @@ sub fc_screenmode(h640 as byte, v400 as byte, rows as byte) static
 
     poke HOTREG, peek(HOTREG) and $7f ' disable HOTREG
 
-    if extrarows > 0 then call adjustborders(extrarows, 0)
+    if extrarows > 0 then call adjustBorders(extrarows, 0)
 
     ' move color RAM because of stupid CBDOS himem usage
     poke COLPTR, BYTE0(gConfig.colorbase)
@@ -475,7 +621,49 @@ sub fc_screenmode(h640 as byte, v400 as byte, rows as byte) static
     poke SCNPTR + 3, 0 ' can't put the screen in attic ram
 
     call fc_resetwin()
-    call fc_clrscr()
+    'call fc_clrscr()
+end sub
+
+sub fc_flash(f as byte) shared static
+    if f then
+        windows(gCurrentWindow).attributes = windows(gCurrentWindow).attributes or $10
+    else
+        windows(gCurrentWindow).attributes = windows(gCurrentWindow).attributes and $ef
+    end if
+end sub
+
+sub fc_revers(f as byte) shared static
+    if f then
+        windows(gCurrentWindow).attributes = windows(gCurrentWindow).attributes or $20
+    else
+        windows(gCurrentWindow).attributes = windows(gCurrentWindow).attributes and $df
+    end if
+end sub
+
+sub fc_bold(f as byte) shared static
+    if f then
+        windows(gCurrentWindow).attributes = windows(gCurrentWindow).attributes or $40
+    else
+        windows(gCurrentWindow).attributes = windows(gCurrentWindow).attributes and $bf
+    end if
+end sub
+
+sub fc_underline(f as byte) shared static
+    if f then
+        windows(gCurrentWindow).attributes = windows(gCurrentWindow).attributes or $80
+    else
+        windows(gCurrentWindow).attributes = windows(gCurrentWindow).attributes and $7f
+    end if
+end sub
+
+sub fc_resetPalette() shared static
+    call enable_io()
+    call fc_loadPalette(gConfig.reservedPaletteBase, 255, false)
+end sub
+
+sub fc_loadReservedBitmap(name as String * 80) shared static
+    call fc_loadFCI(name, gConfig.reservedBitmapBase, gConfig.reservedPaletteBase)
+    call fc_resetPalette()
 end sub
 
 sub fc_real_init(h640 as byte, v400 as byte, rows as byte) static
@@ -493,7 +681,9 @@ sub fc_real_init(h640 as byte, v400 as byte, rows as byte) static
     poke BORDERCOL, BLACK
     poke SCREENCOL, BLACK
 
+
     'TODO reserveredBitmapFile
+    'call fc_loadReservedBitmap(reservedBitmapFile)
 
     autoCR = TRUE
 
