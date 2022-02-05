@@ -5,7 +5,7 @@ const TOPBORDER_PAL = $58
 const BOTTOMBORDER_PAL = $1e8
 const TOPBORDER_NTSC = $27
 const BOTTOMBORDER_NTSC = $1b7
-const CURSOR_CHARACTER = $5f
+const CURSOR_CHARACTER = 100
 
 type Config
     screenbase as long          ' location of 16 bit screen
@@ -124,12 +124,12 @@ sub fc_fatal(message as String * 80) shared static
     ' and they will appear on the screen afterwards
     call fc_go8bit()
     print "fatal error:", message
-    'end
+    do while true
+    loop
 end sub
 
 sub fc_fatal() shared static overload
-    call fc_go8bit()
-    'end
+    call fc_fatal("")
 end sub
 
 sub fc_addGraphicsRect(x0 as byte, y0 as byte, width as byte, height as byte, bitmapData as long) static
@@ -254,6 +254,180 @@ function fc_getkey as byte () shared static
     return fc_cgetc()
 end function
 
+sub fc_plotPetsciiChar(x as byte, y as byte, c as byte, color as byte, attribute as byte) shared static
+    dim offset as word
+    offset = 2 * (x + y * cword(gScreenColumns))
+    call dma_poke(gConfig.screenbase + offset, c)
+    call dma_poke($ff, gConfig.colorbase  + offset + 1, color or attribute)
+end sub
+
+
+sub fc_cursor(onoff as byte) shared static
+    dim cursor as byte
+    dim attribute as byte
+
+    csrflag = onoff
+    if csrflag then 
+        cursor = CURSOR_CHARACTER
+        attribute = 16
+    else
+        cursor = 32
+        attribute = 0
+    end if
+    call fc_plotPetsciiChar(windows(gCurrentWindow).xc + windows(gCurrentWindow).x0, windows(gCurrentWindow).yc + windows(gCurrentWindow).y0, cursor, windows(gCurrentWindow).textcolor, attribute)
+end sub
+
+sub fc_line(x as byte, y as byte, width as byte, character as byte, col as byte) shared static
+    dim w as word
+    dim bas as long
+
+    w = cword(width)
+    bas = 2 * (x + windows(gCurrentWindow).x0 + clong(gScreenColumns) * (windows(gCurrentWindow).y0 + y))
+
+    ' use DMAgic to fill FCM screens with skip byte... PGS, I love you!
+    call dma_fill_skip(gConfig.screenBase + bas, character, w, 2)
+    call dma_fill_skip(gConfig.screenBase + bas + 1, 0, w, 2)
+    call dma_fill_skip(gConfig.colorBase + bas, 0, w, 2)
+    call dma_fill_skip(gConfig.colorBase + bas + 1, col, w, 2)
+end sub
+
+sub fc_block(x0 as byte, y0 as byte, width as byte, height as byte, character as byte, col as byte) shared static
+    for y as byte = 0 to  height - 1
+        call fc_line(x0, y0 + y, width, character, col)
+    next
+end sub
+
+sub fc_scrollUp() shared static
+    dim bas0 as long
+    dim bas1 as long
+    dim w as word
+    w = cword(windows(gCurrentWindow).width) * 2
+
+    for y as byte = windows(gCurrentWindow).y0 to windows(gCurrentWindow).y0 + windows(gCurrentWindow).height - 2
+        bas0 = gConfig.screenBase + (clong(windows(gCurrentWindow).x0) * 2 + (y * gScreenColumns * 2))
+        bas1 = gConfig.screenBase + (clong(windows(gCurrentWindow).x0) * 2 + ((y + 1) * gScreenColumns * 2))
+        call dma_copy(bas1, bas0, w)
+        bas0 = gConfig.colorBase + (clong(windows(gCurrentWindow).x0) * 2 + (y * gScreenColumns * 2))
+        bas1 = gConfig.colorBase + (clong(windows(gCurrentWindow).x0) * 2 + ((y + 1) * gScreenColumns * 2))
+        call dma_copy(bas1, bas0, w)
+    next
+    call fc_line(0, windows(gCurrentWindow).height - 1, windows(gCurrentWindow).width, 32, windows(gCurrentWindow).textcolor)
+end sub
+
+sub fc_scrollDown() shared static
+    dim bas0 as long
+    dim bas1 as long
+    dim w as word
+    w = cword(windows(gCurrentWindow).width) * 2
+
+    for y as int = windows(gCurrentWindow).y0 + windows(gCurrentWindow).height - 2 to windows(gCurrentWindow).y0 step -1
+        bas0 = gConfig.screenBase + (clong(windows(gCurrentWindow).x0) * 2 + (y * gScreenColumns * 2))
+        bas1 = gConfig.screenBase + (clong(windows(gCurrentWindow).x0) * 2 + ((y + 1) * gScreenColumns * 2))
+        call dma_copy(bas0, bas1, w)
+        bas0 = gConfig.colorBase + (clong(windows(gCurrentWindow).x0) * 2 + (y * gScreenColumns * 2))
+        bas1 = gConfig.colorBase + (clong(windows(gCurrentWindow).x0) * 2 + ((y + 1) * gScreenColumns * 2))
+        call dma_copy(bas0, bas1, w)
+    next
+
+    call fc_line(0, 0, windows(gCurrentWindow).width, 32, windows(gCurrentWindow).textcolor)
+end sub
+
+
+sub cr() static 
+    windows(gCurrentWindow).xc = 0
+    windows(gCurrentWindow).yc = windows(gCurrentWindow).yc + 1
+    if windows(gCurrentWindow).yc > windows(gCurrentWindow).height - 1 then
+        call fc_scrollUp()
+        windows(gCurrentWindow).yc = windows(gCurrentWindow).height - 1
+    end if 
+end sub
+
+function asciiToPetscii as byte (c as byte) static
+    ' could be made much faster with translation table
+    'TODO if c = '_' then return 100
+    if c >= 64 and c <= 95 then return c - 64
+    if c >= 96 and c < 192 then return c - 32
+    if c >= 192 then return c - 128
+    return c
+end function
+
+
+sub fc_putc(c as byte) static
+    dim out as byte
+    if c = 13 then call cr(): return
+    if windows(gCurrentWindow).xc >= windows(gCurrentWindow).width then return
+    out = asciiToPetscii(c)
+    call fc_plotPetsciiChar(windows(gCurrentWindow).xc + windows(gCurrentWindow).x0, windows(gCurrentWindow).yc + windows(gCurrentWindow).y0, out, windows(gCurrentWindow).textcolor, windows(gCurrentWindow).attributes)
+    windows(gCurrentWindow).xc = windows(gCurrentWindow).xc + 1
+
+    if autocr then
+        if windows(gCurrentWindow).xc >= windows(gCurrentWindow).width then
+            windows(gCurrentWindow).xc = 0
+            windows(gCurrentWindow).yc = windows(gCurrentWindow).yc + 1
+            if windows(gCurrentWindow).yc >= windows(gCurrentWindow).height then
+                call fc_scrollUp()
+                windows(gCurrentWindow).yc = windows(gCurrentWindow).height - 1
+            end if
+        end if 
+    end if
+
+    if csrflag then
+        call fc_plotPetsciiChar(windows(gCurrentWindow).xc + windows(gCurrentWindow).x0, windows(gCurrentWindow).yc + windows(gCurrentWindow).y0, CURSOR_CHARACTER, windows(gCurrentWindow).textcolor, 16)
+    end if
+end sub
+
+sub fc_gotoxy(x as byte, y as byte) shared static 
+    windows(gCurrentWindow).xc = x
+    windows(gCurrentWindow).yc = y
+end sub
+
+
+function fc_input as String * 80 () shared static
+    dim ct as byte
+    dim len as byte
+    dim maxlen as byte
+    dim current as byte
+    dim fcbuf as word
+    dim ret as String * 80
+
+    len = 0
+    ret = ""
+    maxlen = 80
+    fcbuf = 1 + @ret
+
+    ct = csrflag
+    call fc_cursor(true)
+    do
+        current = fc_cgetc()
+        if current = 20 and len > 0 then
+            ' del pressed
+            call fc_cursor(0)
+            call fc_gotoxy(windows(gCurrentWindow).xc - 1, windows(gCurrentWindow).yc)
+            call fc_putc(32)
+            call fc_gotoxy(windows(gCurrentWindow).xc - 1, windows(gCurrentWindow).yc)
+            call fc_cursor(1)
+            len = len - 1
+            poke fcbuf + len, 0
+        end if
+        if current >= 32 and len < maxlen then
+            ' fix upper/lowercase
+            if current >= 97 then
+                current = current - 32
+            else
+                if current >= 65 then
+                    current = current + 32
+                end if
+            end if
+            poke fcbuf + len, current
+            call fc_putc(current)
+            len = len + 1
+        end if
+    loop while current <> 13
+    call fc_cursor(ct)
+    poke fcbuf - 1, len
+    return ret
+end function
+
 sub fc_plotExtChar(x as byte, y as byte, c as byte) shared static
     dim adr as long
     dim charIdx as word
@@ -330,110 +504,6 @@ sub fc_displayTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byt
     next
 end sub
 
-sub fc_line(x as byte, y as byte, width as byte, character as byte, col as byte) shared static
-    dim w as word
-    dim bas as long
-
-    w = cword(width)
-    bas = 2 * (x + windows(gCurrentWindow).x0 + clong(gScreenColumns) * (windows(gCurrentWindow).y0 + y))
-
-    ' use DMAgic to fill FCM screens with skip byte... PGS, I love you!
-    call dma_fill_skip(gConfig.screenBase + bas, character, w, 2)
-    call dma_fill_skip(gConfig.screenBase + bas + 1, 0, w, 2)
-    call dma_fill_skip(gConfig.colorBase + bas, 0, w, 2)
-    call dma_fill_skip(gConfig.colorBase + bas + 1, col, w, 2)
-end sub
-
-sub fc_block(x0 as byte, y0 as byte, width as byte, height as byte, character as byte, col as byte) shared static
-    for y as byte = 0 to  height - 1
-        call fc_line(x0, y0 + y, width, character, col)
-    next
-end sub
-
-sub fc_scrollUp() shared static
-    dim bas0 as long
-    dim bas1 as long
-    dim w as word
-    w = cword(windows(gCurrentWindow).width) * 2
-
-    for y as byte = windows(gCurrentWindow).y0 to windows(gCurrentWindow).y0 + windows(gCurrentWindow).height - 2
-        bas0 = gConfig.screenBase + (clong(windows(gCurrentWindow).x0) * 2 + (y * gScreenColumns * 2))
-        bas1 = gConfig.screenBase + (clong(windows(gCurrentWindow).x0) * 2 + ((y + 1) * gScreenColumns * 2))
-        call dma_copy(bas1, bas0, w)
-        bas0 = gConfig.colorBase + (clong(windows(gCurrentWindow).x0) * 2 + (y * gScreenColumns * 2))
-        bas1 = gConfig.colorBase + (clong(windows(gCurrentWindow).x0) * 2 + ((y + 1) * gScreenColumns * 2))
-        call dma_copy(bas1, bas0, w)
-    next
-    call fc_line(0, windows(gCurrentWindow).height - 1, windows(gCurrentWindow).width, 32, windows(gCurrentWindow).textcolor)
-end sub
-
-sub fc_scrollDown() shared static
-    dim bas0 as long
-    dim bas1 as long
-    dim w as word
-    w = cword(windows(gCurrentWindow).width) * 2
-
-    for y as byte = windows(gCurrentWindow).y0 + windows(gCurrentWindow).height - 2 to windows(gCurrentWindow).y0 step -1
-        bas0 = gConfig.screenBase + (clong(windows(gCurrentWindow).x0) * 2 + (y * gScreenColumns * 2))
-        bas1 = gConfig.screenBase + (clong(windows(gCurrentWindow).x0) * 2 + ((y + 1) * gScreenColumns * 2))
-        call dma_copy(bas0, bas1, w)
-        bas0 = gConfig.colorBase + (clong(windows(gCurrentWindow).x0) * 2 + (y * gScreenColumns * 2))
-        bas1 = gConfig.colorBase + (clong(windows(gCurrentWindow).x0) * 2 + ((y + 1) * gScreenColumns * 2))
-        call dma_copy(bas0, bas1, w)
-    next
-
-    call fc_line(0, 0, windows(gCurrentWindow).width, 32, windows(gCurrentWindow).textcolor)
-end sub
-
-sub cr() static 
-    windows(gCurrentWindow).xc = 0
-    windows(gCurrentWindow).yc = windows(gCurrentWindow).yc + 1
-    if windows(gCurrentWindow).yc > windows(gCurrentWindow).height - 1 then
-        call fc_scrollUp()
-        windows(gCurrentWindow).yc = windows(gCurrentWindow).height - 1
-    end if 
-end sub
-
-sub fc_plotPetsciiChar(x as byte, y as byte, c as byte, color as byte, attribute as byte) shared static
-    dim offset as word
-    offset = 2 * (x + y * cword(gScreenColumns))
-    call dma_poke(gConfig.screenbase + offset, c)
-    call dma_poke($ff, gConfig.colorbase  + offset + 1, color or attribute)
-end sub
-
-function asciiToPetscii as byte (c as byte) static
-    ' could be made much faster with translation table
-    'TODO if c = '_' then return 100
-    if c >= 64 and c <= 95 then return c - 64
-    if c >= 96 and c < 192 then return c - 32
-    if c >= 192 then return c - 128
-    return c
-end function
-
-sub fc_putc(c as byte) static
-    dim out as byte
-    if c = 13 then call cr(): return
-    if windows(gCurrentWindow).xc >= windows(gCurrentWindow).width then return
-    out = asciiToPetscii(c)
-    call fc_plotPetsciiChar(windows(gCurrentWindow).xc + windows(gCurrentWindow).x0, windows(gCurrentWindow).yc + windows(gCurrentWindow).y0, out, windows(gCurrentWindow).textcolor, windows(gCurrentWindow).attributes)
-    windows(gCurrentWindow).xc = windows(gCurrentWindow).xc + 1
-
-    if autocr then
-        if windows(gCurrentWindow).xc >= windows(gCurrentWindow).width then
-            windows(gCurrentWindow).xc = 0
-            windows(gCurrentWindow).yc = windows(gCurrentWindow).yc + 1
-            if windows(gCurrentWindow).yc >= windows(gCurrentWindow).height then
-                call fc_scrollUp()
-                windows(gCurrentWindow).yc = windows(gCurrentWindow).height - 1
-            end if
-        end if 
-    end if
-
-    if csrflag then
-        call fc_plotPetsciiChar(windows(gCurrentWindow).xc + windows(gCurrentWindow).x0, windows(gCurrentWindow).yc + windows(gCurrentWindow).y0, CURSOR_CHARACTER, windows(gCurrentWindow).textcolor, 16)
-    end if
-end sub
-
 sub fc_puts(s as word) shared static 
     for i as byte = 1 to peek(s)
         call fc_putc(peek(s + i))
@@ -443,12 +513,6 @@ end sub
 sub fc_puts(s as String * 80) shared static overload
     call fc_puts(@s)
 end sub
-
-sub fc_gotoxy(x as byte, y as byte) shared static 
-    windows(gCurrentWindow).xc = x
-    windows(gCurrentWindow).yc = y
-end sub
-
 
 sub fc_putsxy(x as byte, y as byte, s as string*80) shared static
     call fc_gotoxy(x, y)
@@ -548,21 +612,6 @@ sub fc_resetwin() shared static
     windows(gCurrentWindow).textcolor = 5
 end sub
 
-
-sub fc_cursor(onoff as byte) shared static
-    dim cursor as byte
-    dim attribute as byte
-
-    csrflag = onoff
-    if csrflag then 
-        cursor = CURSOR_CHARACTER
-        attribute = 16
-    else
-        cursor = 32
-        attribute = 0
-    end if
-    call fc_plotPetsciiChar(windows(gCurrentWindow).xc + windows(gCurrentWindow).x0, windows(gCurrentWindow).yc + windows(gCurrentWindow).y0, cursor, windows(gCurrentWindow).textcolor, attribute)
-end sub
 
 sub fc_screenmode(h640 as byte, v400 as byte, rows as byte) static
     ' starts full color mode in 640 * 400
