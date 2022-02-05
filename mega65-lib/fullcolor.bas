@@ -344,13 +344,11 @@ end sub
 
 function asciiToPetscii as byte (c as byte) static
     ' could be made much faster with translation table
-    'TODO if c = '_' then return 100
     if c >= 64 and c <= 95 then return c - 64
     if c >= 96 and c < 192 then return c - 32
     if c >= 192 then return c - 128
     return c
 end function
-
 
 sub fc_putc(c as byte) static
     dim out as byte
@@ -717,6 +715,7 @@ end sub
 
 sub fc_real_init(h640 as byte, v400 as byte, rows as byte) static
     call enable_io()
+    poke 53272,23 ' make lowercase
 
     if peek($d06f) and 128 then
         gTopBorder = TOPBORDER_NTSC

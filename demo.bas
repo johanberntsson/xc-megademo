@@ -20,7 +20,7 @@ main:
     call fc_displayTile(tiles, 20, 20, 0, 0, 6, 7, true)
 
     call fc_gotoxy(0,10)
-    call fc_puts("what is your name? ")
+    call fc_puts("What is your name? ")
     call fc_textcolor(ORANGE)
     name = fc_input()
 
@@ -28,9 +28,9 @@ main:
     call fc_textcolor(WHITE)
     call fc_puts("hello ")
     call fc_textcolor(RED)
-    call fc_flash(true)
+    call fc_revers(true)
     call fc_puts(name)
-    call fc_flash(false)
+    call fc_revers(false)
     call fc_textcolor(GREEN)
 
     call fc_hlinexy(20,10,20,$30)
