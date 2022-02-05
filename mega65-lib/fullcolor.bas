@@ -8,12 +8,10 @@ const BOTTOMBORDER_NTSC = $1b7
 const CURSOR_CHARACTER = 100
 
 type Config
-    screenbase as long          ' location of 16 bit screen
-    reservedbitmapbase as long  ' reserved bitmap graphics graphics
-    reservedpalettebase as long ' reserved system palette
-    dynamicpalettebase as long  ' loaded palettes base
-    dynamicbitmapbase as long   ' loaded bitmaps base
-    colorbase as long           ' attribute/color ram
+    screenbase as long   ' location of 16 bit screen
+    palettebase as long  ' loaded palettes base
+    bitmapbase as long   ' loaded bitmaps base
+    colorbase as long    ' attribute/color ram
 end type
 
 type TextWindow ' size = 9 bytes
@@ -47,8 +45,10 @@ dim gBottomBorder as word shared
 
 dim windowCount as byte
 dim infoBlockCount as byte
-dim nextFreeGraphMem as long ' location of next free graphics block in banks 4 & 5
-dim nextFreePalMem as long   ' location of next free palette memory block
+dim firstFreeGraphMem as long ' first free graphics block
+dim firstFreePalMem as long   ' first free palette memory block
+dim nextFreeGraphMem as long  ' location of next free graphics block
+dim nextFreePalMem as long    ' location of next free palette memory block
 
 const MAX_WINDOWS =  8
 const MAX_FCI_BLOCKS = 16
@@ -151,10 +151,10 @@ sub fc_addGraphicsRect(x0 as byte, y0 as byte, width as byte, height as byte, bi
 end sub 
 
 sub fc_freeGraphAreas() static
-    windowCount = 0
-    infoBlockCount = 0
-    nextFreeGraphMem = gConfig.dynamicBitmapBase
-    nextFreePalMem = gConfig.dynamicPaletteBase
+    windowCount = 1
+    infoBlockCount = 1
+    nextFreeGraphMem = firstFreeGraphMem
+    nextFreePalMem = firstFreePalMem
 end sub
 
 function fc_allocGraphMem as long (size as word) static
@@ -163,15 +163,15 @@ function fc_allocGraphMem as long (size as word) static
     ' crossing bank boundaries. If everything's full, bail out.
     dim adr as long
     adr = nextFreeGraphMem
-    if nextFreeGraphMem + size < gConfig.dynamicBitmapBase + $10000 then
+    if nextFreeGraphMem + size < gConfig.bitmapbase + $10000 then
         nextFreeGraphMem = nextFreeGraphMem + size
         return adr
     end if 
-    if nextFreeGraphMem < gConfig.dynamicBitmapBase + $10000 then
-        nextFreeGraphMem = gConfig.dynamicBitmapBase + $10000
+    if nextFreeGraphMem < gConfig.bitmapbase + $10000 then
+        nextFreeGraphMem = gConfig.bitmapbase + $10000
         adr = nextFreeGraphMem
     end if 
-    if nextFreeGraphMem + size < gConfig.dynamicBitmapBase + $20000 then
+    if nextFreeGraphMem + size < gConfig.bitmapbase + $20000 then
         nextFreeGraphMem = nextFreeGraphMem + size
         return adr
     end if 
@@ -188,8 +188,16 @@ function fc_allocPalMem as long (size as word) static
     return 0
 end function
 
-function fc_loadFCI as byte (filename as String * 20, bitmapAddress as long, paletteAddress as long) shared static
+function fc_nextInfoBlock as byte () static
     dim info as byte
+    ' find a free block
+    if infoBlockCount = MAX_FCI_BLOCKS then call fc_fatal("Out of blocks")
+    info = infoBlockCount
+    infoBlockCount = infoBlockCount + 1
+    return infoBlockCount
+end function
+
+function fc_loadFCI as byte (info as byte, filename as String * 20) shared static
     dim options as byte
     dim paletteMemSize as long
     dim bitmapSourceAddress as long
@@ -203,10 +211,6 @@ function fc_loadFCI as byte (filename as String * 20, bitmapAddress as long, pal
     ' but currently there is a bug stopping it in xc-basic 3
     base = $a000
 
-    ' find a free block
-    if infoBlockCount = MAX_FCI_BLOCKS then call fc_fatal("Out of blocks")
-    info = infoBlockCount
-    infoBlockCount = infoBlockCount + 1
 
     load "tiles.fci", 8, base+2 ' compensate for two missing bytes
     infoBlocks(info).rows = peek(base + 5)
@@ -226,7 +230,7 @@ function fc_loadFCI as byte (filename as String * 20, bitmapAddress as long, pal
 end function
 
 function fc_loadFCI as byte (filename as String * 20) shared static overload
-    return fc_loadFCI(filename, clong(0), clong(0))
+    return fc_loadFCI(fc_nextInfoBlock(), filename)
 end function
 
 function fc_kbhit as byte () static
@@ -426,15 +430,6 @@ function fc_input as String * 80 () shared static
     return ret
 end function
 
-sub fc_plotExtChar(x as byte, y as byte, c as byte) shared static
-    dim adr as long
-    dim charIdx as word
-    charIdx = cword(gConfig.reservedBitmapBase / 64) + c
-    adr = (x * 2) + (y * clong(gScreenColumns) * 2)
-    call dma_poke(gConfig.screenBase + adr, BYTE1(charIdx))
-    call dma_poke(gConfig.screenBase + adr + 1, BYTE0(charIdx))
-end sub
-
 sub adjustBorders(extrarows as byte, extracolumns as byte) static
     dim extraTopRows as byte
     dim extraBottomRows as byte
@@ -566,13 +561,13 @@ end sub
 
 sub fc_hlinexy(x as byte, y as byte, width as byte, lineChar as byte) shared static
     for cgi as byte = x to x + width - 1
-        call fc_plotExtChar(windows(gCurrentWindow).x0 + x + cgi, windows(gCurrentWindow).y0 + y, lineChar)
+        call fc_putcxy(windows(gCurrentWindow).x0 + x + cgi, windows(gCurrentWindow).y0 + y, lineChar)
     next
 end sub
 
 sub fc_vlinexy(x as byte, y as byte, height as byte, lineChar as byte) shared static
     for cgi as byte = y to y + height - 1
-        call fc_plotExtChar(windows(gCurrentWindow).x0 + x, windows(gCurrentWindow).y0 + y + cgi, lineChar)
+        call fc_putcxy(windows(gCurrentWindow).x0 + x, windows(gCurrentWindow).y0 + y + cgi, lineChar)
     next
 end sub
 
@@ -611,15 +606,23 @@ sub fc_resetwin() shared static
 end sub
 
 
-sub fc_screenmode(h640 as byte, v400 as byte, rows as byte) static
+sub fc_screenmode(h640 as byte, v400 as byte, rows as byte, columns as byte) static
     ' starts full color mode in 640 * 400
     dim extrarows as byte
+    dim extracols as byte
 
     call enable_io()
+
     if rows = 0 then
         if v400 then gScreenRows = 50 else gScreenRows = 25
     else
         gScreenRows = rows
+    end if
+
+    if columns = 0 then
+        if h640 then gScreenColumns = 80 else gScreenColumns = 40
+    else
+        gScreenColumns = columns
     end if
 
     poke HOTREG, peek(HOTREG) or $80    ' enable HOTREG if previously disabled
@@ -629,9 +632,11 @@ sub fc_screenmode(h640 as byte, v400 as byte, rows as byte) static
         poke VIC3CTRL, peek(VIC3CTRL) or $80 ' enable H640
         poke VIC2CTRL, peek(VIC2CTRL) or $1  ' shift one pixel right (VIC3 bug)
         gScreenColumns = 80
+        extracols = gScreenColumns - 80
     else
         poke VIC3CTRL, peek(VIC3CTRL) and $7f ' disable H640
         gScreenColumns = 40
+        extracols = gScreenColumns - 40
     end if
 
     if v400 then
@@ -705,15 +710,16 @@ end sub
 
 sub fc_resetPalette() shared static
     call enable_io()
-    call fc_loadPalette(gConfig.reservedPaletteBase, 255, false)
+    call fc_loadPalette(gConfig.palettebase, 255, false)
 end sub
 
 sub fc_loadReservedBitmap(name as String * 80) shared static
-    call fc_loadFCI(name, gConfig.reservedBitmapBase, gConfig.reservedPaletteBase)
+    if firstFreeGraphMem <> gConfig.bitmapbase then call fc_fatal("Reserved memory must be allocated first")
+    call fc_loadFCI(0, name)
     call fc_resetPalette()
 end sub
 
-sub fc_real_init(h640 as byte, v400 as byte, rows as byte) static
+sub fc_real_init(h640 as byte, v400 as byte, rows as byte, columns as byte) static
     call enable_io()
     poke 53272,23 ' make lowercase
 
@@ -725,35 +731,34 @@ sub fc_real_init(h640 as byte, v400 as byte, rows as byte) static
         gBottomBorder = BOTTOMBORDER_PAL
     end if
 
+    firstFreePalMem = gConfig.palettebase
+    firstFreeGraphMem = gConfig.bitmapbase
     call fc_freeGraphAreas()
+
     poke BORDERCOL, BLACK
     poke SCREENCOL, BLACK
 
-
-    'TODO reserveredBitmapFile
-    'call fc_loadReservedBitmap(reservedBitmapFile)
-
     autoCR = TRUE
 
-    call fc_screenmode(h640, v400, rows)
+    call fc_screenmode(h640, v400, rows, columns)
     call fc_textcolor(GREEN)
 end sub
 
-sub fc_init(h640 as byte, v400 as byte, rows as byte) shared static
+sub fc_init(h640 as byte, v400 as byte, rows as byte, columns as byte) shared static
     ' standard config
     gConfig.screenbase = $12000
-    gConfig.reservedbitmapbase = $14000
-    gConfig.reservedpalettebase = $15000
-    gConfig.dynamicpalettebase = $15300
-    gConfig.dynamicbitmapbase = $40000
+    gConfig.palettebase = $14000
+    gConfig.bitmapbase = gConfig.palettebase + MAX_FCI_BLOCKS * 256 * 3
     gConfig.colorbase = $81000 ' $0ff ...
-    call fc_real_init(h640, v400, rows)
+    call fc_real_init(h640, v400, rows, columns)
 end sub
 
-sub fc_init(h640 as byte, v400 as byte, rows as byte, screenbase as long, colorbase as long) overload shared static
+sub fc_init(h640 as byte, v400 as byte, rows as byte, columns as byte, screenbase as long, palettebase as long, bitmapbase as long, colorbase as long) overload shared static
     ' use users supplied config parameters
     gConfig.screenbase = screenbase
+    gConfig.palettebase = palettebase
+    gConfig.bitmapbase = bitmapbase
     gConfig.colorbase = colorbase
-    call fc_real_init(h640, v400, rows)
+    call fc_real_init(h640, v400, rows, columns)
 end sub
 

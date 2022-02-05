@@ -16,13 +16,16 @@ Put the correct paths to these programs in the Makefile.
 
 Type "make" to run the example program.
 
-# TODO
+# FC changes
 
 unify reserved\* / dynamic\* to and use index 0 for reserved, 1.. for things that can be cleared and reused
 
-add fc_setfontsource (similar to fc_setwin) which can be either the standard font, or use one of the bitmaps. Change all fc_put\* and similar to use this info
-
 remove Ext-version of printout functions (no longer needed since font can be specified)
+
+
+# TODO
+
+add fc_setfont (similar to fc_setwin) which can be either the standard font, or use one of the bitmaps. Change all fc_put\* and similar to use this info
 
 
 
