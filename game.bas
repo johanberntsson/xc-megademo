@@ -41,7 +41,7 @@ function draw_hexagons as byte () static
                     tileOffsetX = 7
                     tileOffsetY = 6
                 end if 
-                call fc_displayTile(tiles, 2 + x*10 + 5 * (y mod 2), y*3, tileOffsetX, tileOffsetY, 7, 6, true)
+                call fc_displayTile(tiles, 4 + x*10 + 5 * (y mod 2), y*3, tileOffsetX, tileOffsetY, 7, 6, true)
             end if
         next
     next
@@ -53,16 +53,18 @@ main:
     call enable_40mhz()
     'call fc_init(true, true, 0, 0)
     call fc_init(true, true, 0, 0, $12000, $14000, $80, clong($0), $81000)
-    tiles = fc_loadFCI("tiles.fci") ' TODO: must be before fc_loadFCI
     call fc_setUniqueTileMode()
+    tiles = fc_loadFCI("tiles.fci") 
     call fc_loadFCIPalette(tiles)
     call init_hexagons()
-    call fc_displayTile(tiles, 0, 42, 0, 6, 28, 6, false)
+
+    ' draw bottom wall
+    call fc_displayTile(tiles, 0, 43, 0, 6, 28, 6, false)
     call fc_displayTile(tiles, 28, 43, 0, 6, 28, 6, false)
-    call fc_displayTile(tiles, 56, 44, 0, 6, 24, 6, false)
+    call fc_displayTile(tiles, 56, 43, 0, 6, 24, 6, false)
+    ' draw hexagons
+    call draw_hexagons()
 
-    call fc_displayTile(tiles, 20, 44, 0, 0, 7, 6, true)
-
-    'call draw_hexagons()
+    call fc_putsxy(0, 49, "Score: 0")
 loop:
     goto loop

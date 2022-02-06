@@ -59,10 +59,11 @@ const BOTTOMBORDER_NTSC = $1b7
 const CURSOR_CHARACTER = 100
 
 type Config
-    screenbase as long   ' location of 16 bit screen
-    palettebase as long  ' loaded palettes base
-    bitmapbase as long   ' loaded bitmaps base
-    colorbase as long    ' attribute/color ram
+    screenbase as long    ' location of 16 bit screen
+    palettebase as long   ' loaded palettes base
+    bitmap_mirror as long ' bitmap base in uniqueMode (fast ram)
+    bitmapbase as long    ' loaded bitmaps base
+    colorbase as long     ' attribute/color ram
     bitmapbase_high as byte 
     ' bitmapbase_high is usually $00, but could be $80
     ' if uniqueMode stores bitmaps in attic RAM
@@ -99,12 +100,12 @@ dim gTopBorder as byte shared
 dim gBottomBorder as word shared
 
 dim windowCount as byte
-dim infoBlockCount as byte
+dim fciCount as byte
 dim firstFreeGraphMem as long ' first free graphics block
 dim firstFreePalMem as long   ' first free palette memory block
 dim nextFreeGraphMem as long  ' location of next free graphics block
 dim nextFreePalMem as long    ' location of next free palette memory block
-dim uniqueTileMode as byte    ' if set, uses $20000 - $5ffff for tiles
+dim uniqueTileMode as byte    ' if set, uses bitmap_mirror - $5ffff for tiles
                               ' that can be modified independently
 
 const MAX_WINDOWS =  8
@@ -209,7 +210,7 @@ end sub
 
 sub fc_freeGraphAreas() static
     windowCount = 1
-    infoBlockCount = 1
+    fciCount = 1
     nextFreeGraphMem = firstFreeGraphMem
     nextFreePalMem = firstFreePalMem
 end sub
@@ -248,10 +249,10 @@ end function
 function fc_nextInfoBlock as byte () static
     dim info as byte
     ' find a free block
-    if infoBlockCount = MAX_FCI then call fc_fatal("Out of blocks")
-    info = infoBlockCount
-    infoBlockCount = infoBlockCount + 1
-    return infoBlockCount
+    if fciCount = MAX_FCI then call fc_fatal("Out of blocks")
+    info = fciCount
+    fciCount = fciCount + 1
+    return fciCount
 end function
 
 function fc_loadFCI as byte (info as byte, filename as String * 20) shared static
@@ -546,12 +547,14 @@ sub fc_displayTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byt
     dim toTileAddr as long
     dim fromTileAddr as long
 
-    for y as byte = t_y to t_y + t_h -1
-        screenAddr = gConfig.screenbase + 2 *(x0 + (y0 + y - t_y) * cword(gScreenColumns))
+    for y as byte = 0 to t_h -1
+        screenAddr = gConfig.screenbase + 2 *(x0 + (y0 + y) * cword(gScreenColumns))
         if uniqueTileMode then
-            fromTileAddr = fci(info).baseAdr + clong(64)*(t_x + (y * clong(fci(info).columns)))
-            ' copy bitmap asset to location in $2xxxx - $5xxxx
-            toTileAddr = $20000 + clong(64) * (x0 + ((y + y0) * clong(gScreenColumns)))
+            fromTileAddr = fci(info).baseAdr + 64*(t_x + ((y + t_y) * clong(fci(info).columns)))
+            ' copy bitmap asset to location in bitmap_mirror - $5xxxx
+            toTileAddr = gConfig.bitmap_mirror + 64 * (x0 + (clong(gScreenColumns) * (y + y0)))
+            ' skip over DOS
+            if toTileAddr >= $20000 then toTileAddr = toTileAddr + $4000
             ' skip over C64 kernal
             if toTileAddr >= $2dd00 then toTileAddr = toTileAddr + $2300
             charIndex = cword(toTileAddr / 64)
@@ -797,7 +800,9 @@ sub fc_loadReservedBitmap(name as String * 80) shared static
 end sub
 
 sub fc_clearUniqueTiles() static
-    call dma_fill($20000, 0, cword($8000))
+    call dma_fill($1c000, 0, cword($4000))
+    ' skip over DOS
+    call dma_fill($24000, 0, cword($4000))
     ' skip over C64 kernal
     call dma_fill($28000, 0, cword($6000))
     call dma_fill($30000, 0, $8000)
@@ -810,7 +815,7 @@ end sub
 
 sub fc_setUniqueTileMode() shared static
     dim b as byte
-    dim a as long: a = $20000
+    dim a as long: a = gConfig.bitmap_mirror
     if uniqueTileMode = false then
         ' Bank out the C64/C65 ROM, freeing $2xxxx and $3xxxx.
         ' But, assuming that the program is started from C64
@@ -841,6 +846,11 @@ sub fc_setUniqueTileMode() shared static
         if dma_peek(a) <> b + 1 then call fc_fatal("Banking failed")
         uniqueTileMode = true
         call fc_clearUniqueTiles()
+
+        if fciCount > 1 then call fc_fatal("Unique will destroy bitmaps")
+        gConfig.bitmapbase = clong(0)
+        gConfig.bitmapbase_high = $80
+        call fc_freeGraphAreas()
     end if 
 end sub
 
@@ -856,6 +866,9 @@ sub fc_real_init(h640 as byte, v400 as byte, rows as byte, columns as byte) stat
         gTopBorder = TOPBORDER_PAL
         gBottomBorder = BOTTOMBORDER_PAL
     end if
+
+    ' where the sceen bitmap starts in uniqueMode
+    gConfig.bitmap_mirror = $1b000 
 
     firstFreePalMem = gConfig.palettebase
     firstFreeGraphMem = gConfig.bitmapbase
