@@ -12,27 +12,29 @@ type Config
     palettebase as long  ' loaded palettes base
     bitmapbase as long   ' loaded bitmaps base
     colorbase as long    ' attribute/color ram
+    bitmapbase_high as byte ' usually $00, but could be $80 if 
+                            ' uniqueMode stores bitmaps in attic RAM
 end type
 
-type TextWindow ' size = 9 bytes
-    x0 as byte         ' current cursor X position
-    y0 as byte         ' current cursor Y position
-    width as byte      ' X origin
-    height as byte     ' Y origin
-    xc as byte         ' window width
-    yc as byte         ' window height
-    textcolor as byte  ' current window text color
-    attributes as byte ' current window extended text attributes
+type TextWindow
+    x0 as byte           ' current cursor X position
+    y0 as byte           ' current cursor Y position
+    width as byte        ' X origin
+    height as byte       ' Y origin
+    xc as byte           ' window width
+    yc as byte           ' window height
+    textcolor as byte    ' current window text color
+    attributes as byte   ' current window extended text attributes
 end type
 
-type fciInfo ' size = 13 bytes
-    baseAdr as long     ' bitmap base address
-    paletteAdr as long  ' palette data base addres
-    paletteSize as byte ' size of palette (in palette entries)
+type fciInfo
+    baseAdr as long      ' bitmap base address
+    paletteAdr as long   ' palette data base addres
+    paletteSize as byte  ' size of palette (in palette entries)
     reservedSysPalette as byte ' if true, don't use colors 0-15
-    columns as byte     ' number of character columns for image
-    rows as byte        ' number of character rows
-    size as word        ' size of bitmap
+    columns as byte      ' number of character columns for image
+    rows as byte         ' number of character rows
+    size as word         ' size of bitmap
 end type
 
 dim gConfig as Config shared
@@ -49,6 +51,8 @@ dim firstFreeGraphMem as long ' first free graphics block
 dim firstFreePalMem as long   ' first free palette memory block
 dim nextFreeGraphMem as long  ' location of next free graphics block
 dim nextFreePalMem as long    ' location of next free palette memory block
+dim uniqueTileMode as byte    ' if set, uses $20000 - $5ffff for tiles
+                              ' that can be modified independently
 
 const MAX_WINDOWS =  8
 const MAX_FCI_BLOCKS = 16
@@ -136,7 +140,7 @@ sub fc_addGraphicsRect(x0 as byte, y0 as byte, width as byte, height as byte, bi
     dim adr as long
     dim currentCharIdx as word
 
-    currentCharIdx = cword(bitmapData / 64)
+    currentCharIdx = cword(bitmapData / 64) 
 
     for y as byte = y0 to y0 + height - 1
         for x as byte = x0 to x0 + width - 1
@@ -227,7 +231,8 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
     call dma_copy(clong(base + 9), infoBlocks(info).paletteAdr, paletteMemSize)
 
     infoBlocks(info).baseAdr = fc_allocGraphMem(infoBlocks(info).size)
-    call dma_copy(bitmapSourceAddress, infoBlocks(info).baseAdr, infoBlocks(info).size)
+
+    call dma_copy(0, bitmapSourceAddress, gConfig.bitmapbase_high, infoBlocks(info).baseAdr, infoBlocks(info).size)
     return info
 end function
 
@@ -479,16 +484,29 @@ function fc_displayFCIFile as byte (filename as String * 20, x0 as byte, y0 as b
 end function
 
 sub fc_displayTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byte, t_w as byte, t_h as byte, mergeTiles as byte) shared static
-    dim x as byte
-    dim y as byte
     dim screenAddr as long
     dim charIndex as word
+    dim toTileAddr as long
+    dim fromTileAddr as long
 
-    for y = t_y to t_y + t_h -1
+    for y as byte = t_y to t_y + t_h -1
         screenAddr = gConfig.screenbase + 2 *(x0 + (y0 + y - t_y) * cword(gScreenColumns))
-        charIndex = cword(infoBlocks(info).baseAdr / 64) + t_x + (y * infoBlocks(info).columns)
-        for x = t_x to t_x + t_w - 1
-            'print x, y
+        if uniqueTileMode then
+            fromTileAddr = infoBlocks(info).baseAdr + clong(64)*(t_x + (y * clong(infoBlocks(info).columns)))
+            ' copy bitmap asset to location in $2xxxx - $5xxxx
+            toTileAddr = $20000 + clong(64) * (x0 + ((y + y0) * clong(gScreenColumns)))
+            ' skip over C64 kernal
+            if toTileAddr >= $2dd00 then toTileAddr = toTileAddr + $2300
+            charIndex = cword(toTileAddr / 64)
+            if mergeTiles then
+                call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64 * cword(t_w), 0)
+            else
+                call dma_copy(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64 * cword(t_w))
+            end if
+        else
+            charIndex = cword(infoBlocks(info).baseAdr / 64) + t_x + (y * infoBlocks(info).columns)
+        end if
+        for x as byte = t_x to t_x + t_w - 1
             ' set highbyte first to avoid blinking
             ' while setting up the screeen
             call dma_poke(screenAddr + 1, BYTE1(charIndex))
@@ -721,9 +739,52 @@ sub fc_loadReservedBitmap(name as String * 80) shared static
     call fc_resetPalette()
 end sub
 
+sub fc_clearUniqueTiles() static
+    'TODO call dma_fill($20000, 0, $8000)
+    call dma_fill($28000, 0, cword($6000))
+    call dma_fill($30000, 0, $8000)
+    call dma_fill($38000, 0, $8000)
+    call dma_fill($40000, 0, $8000)
+    call dma_fill($48000, 0, $8000)
+    call dma_fill($50000, 0, $8000)
+    call dma_fill($58000, 0, $8000)
+end sub
+
+sub fc_setUniqueTileMode() shared static
+    if uniqueTileMode = false then
+        uniqueTileMode = true
+        ' Bank out the C64/C65 ROM, freeing $2xxxx and $3xxxx.
+        ' But, assuming that the program is started from C64
+        ' mode, we still need the kernal, so avoid writing on
+        ' 2e000 - 2ffff.
+        asm
+            ; Since dasm doesn't allow 4510 opcodes I have
+            ; written the assembler in acme, made a hexdump and
+            ; stored it here
+            byte $a9, $00       ; lda #$00
+            byte $aa            ; tax
+            byte $a8            ; tay
+            byte $4b            ; taz
+            byte $5c            ; map
+            byte $a9, $36       ; lda #$36 (no basic)
+            byte $85, $01       ; sta $01
+            byte $a9, $47       ; lda #$47
+            byte $8d, $2f, $d0  ; sta $d02f
+            byte $a9, $53       ; lda #$53
+            byte $8d, $2f, $d0  ; sta $d02f
+            byte $ea            ; eom
+            byte $a9, $70       ; lda #$70
+            byte $8d, $40, $d6  ; sta $d640
+            byte $ea            ; nop
+        end asm
+        call fc_clearUniqueTiles()
+    end if 
+end sub
+
 sub fc_real_init(h640 as byte, v400 as byte, rows as byte, columns as byte) static
     call enable_io()
     poke 53272,23 ' make lowercase
+    uniqueTileMode = false
 
     if peek($d06f) and 128 then
         gTopBorder = TOPBORDER_NTSC
@@ -750,15 +811,17 @@ sub fc_init(h640 as byte, v400 as byte, rows as byte, columns as byte) shared st
     ' standard config
     gConfig.screenbase = $12000
     gConfig.palettebase = $14000
+    gConfig.bitmapbase_high = $00
     gConfig.bitmapbase = gConfig.palettebase + MAX_FCI_BLOCKS * 256 * 3
     gConfig.colorbase = $81000 ' $0ff ...
     call fc_real_init(h640, v400, rows, columns)
 end sub
 
-sub fc_init(h640 as byte, v400 as byte, rows as byte, columns as byte, screenbase as long, palettebase as long, bitmapbase as long, colorbase as long) overload shared static
+sub fc_init(h640 as byte, v400 as byte, rows as byte, columns as byte, screenbase as long, palettebase as long, bitmap_high as byte, bitmapbase as long, colorbase as long) overload shared static
     ' use users supplied config parameters
     gConfig.screenbase = screenbase
     gConfig.palettebase = palettebase
+    gConfig.bitmapbase_high = bitmap_high
     gConfig.bitmapbase = bitmapbase
     gConfig.colorbase = colorbase
     call fc_real_init(h640, v400, rows, columns)

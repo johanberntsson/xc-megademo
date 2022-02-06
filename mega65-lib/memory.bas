@@ -20,15 +20,60 @@ type Dmalist
     modulo as word
 end type
 
-dim dmalist as Dmalist
+type Dmalist_transparent
+    option_07 as byte ' enable transparancy
+    option_0b as byte
+    option_80 as byte
+    source_mb as byte
+    option_81 as byte
+    dest_mb as byte
+    option_85 as byte
+    dest_skip as byte
+    option_86 as byte
+    transparent as byte
+    end_of_options as byte
+    command as byte
+    count as word
+    source_addr as word
+    source_bank as byte
+    dest_addr as word
+    dest_bank as byte
+    sub_cmd as byte
+    modulo as word
+end type
 
-sub do_dma() static
+dim dmalist as Dmalist
+dim dmalist_transparent as Dmalist_transparent
+
+sub do_dma(list as word) static
     call enable_io()
     poke $d702, 0
     poke $d704, 0
-    poke $d701, BYTE1(@dmalist)
-    poke $d705, BYTE0(@dmalist)
+    poke $d701, BYTE1(list)
+    poke $d705, BYTE0(list)
 end sub 
+
+sub dma_copy_transparent(source_highaddress as byte, source_address as long, destination_highaddress as byte, destination_address as long, count as word, transparent as byte) shared static
+    dmalist_transparent.option_07 = $07
+    dmalist_transparent.option_0b = $0b
+    dmalist_transparent.option_80 = $80
+    dmalist_transparent.source_mb = source_highaddress
+    dmalist_transparent.option_81 = $81
+    dmalist_transparent.dest_mb = destination_highaddress
+    dmalist_transparent.option_85 = $85
+    dmalist_transparent.dest_skip = 1
+    dmalist_transparent.option_86 = $86
+    dmalist_transparent.transparent = transparent
+    dmalist_transparent.end_of_options = 0
+    dmalist_transparent.command = 0
+    dmalist_transparent.sub_cmd = 0
+    dmalist_transparent.count = count
+    dmalist_transparent.source_addr = cword(source_address)
+    dmalist_transparent.source_bank = BYTE2(source_address) and $0f
+    dmalist_transparent.dest_addr = cword(destination_address)
+    dmalist_transparent.dest_bank = BYTE2(destination_address) and $0f
+    call do_dma(@dmalist_transparent)
+end sub
 
 sub dma_copy(source_highaddress as byte, source_address as long, destination_highaddress as byte, destination_address as long, count as word) shared static
     dmalist.option_0b = $0b
@@ -46,7 +91,7 @@ sub dma_copy(source_highaddress as byte, source_address as long, destination_hig
     dmalist.source_bank = BYTE2(source_address) and $0f
     dmalist.dest_addr = cword(destination_address)
     dmalist.dest_bank = BYTE2(destination_address) and $0f
-    call do_dma()
+    call do_dma(@dmalist)
 end sub
 
 sub dma_copy(source_address as long, destination_address as long, count as word) shared static overload
@@ -68,7 +113,7 @@ sub dma_fill(highaddress as byte, address as long, value as byte, count as word)
     dmalist.source_addr = value
     dmalist.dest_addr = cword(address)
     dmalist.dest_bank = BYTE2(address) and $0f
-    call do_dma()
+    call do_dma(@dmalist)
 end sub
 
 sub dma_fill(address as long, value as byte, count as word) shared static overload
@@ -91,7 +136,7 @@ sub dma_fill_skip(highaddress as byte, address as long, value as byte, count as 
     dmalist.source_bank = 0
     dmalist.dest_addr = cword(address)
     dmalist.dest_bank = BYTE2(address) and $0f
-    call do_dma()
+    call do_dma(@dmalist)
 end sub
 
 sub dma_fill_skip(address as long, value as byte, count as word, skip as byte) shared static overload
@@ -114,7 +159,7 @@ sub dma_poke(highaddress as byte, address as long, value as byte) shared static
     dmalist.source_bank = 0
     dmalist.dest_addr = cword(address)
     dmalist.dest_bank = BYTE2(address) and $0f
-    call do_dma()
+    call do_dma(@dmalist)
 end sub
 
 function dma_peek as byte (highaddress as byte, address as long) shared static
@@ -134,7 +179,7 @@ function dma_peek as byte (highaddress as byte, address as long) shared static
     dmalist.source_bank = BYTE2(address) and $0f
     dmalist.dest_addr = @dmabyte
     dmalist.dest_bank = 0
-    call do_dma()
+    call do_dma(@dmalist)
     return dmabyte
 end sub
 

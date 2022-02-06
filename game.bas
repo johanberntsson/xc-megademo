@@ -41,11 +41,7 @@ function draw_hexagons as byte () static
                     tileOffsetX = 7
                     tileOffsetY = 6
                 end if 
-                if (y mod 2) = 0 then
-                    call fc_displayTile(tiles, 2 + x*10, y*3, tileOffsetX, tileOffsetY, 7, 6, true)
-                else
-                    call fc_displayTile(tiles, 2 + x*10 + 5, y*3, tileOffsetX, tileOffsetY, 7, 6, true)
-                end if 
+                call fc_displayTile(tiles, 2 + x*10 + 5 * (y mod 2), y*3, tileOffsetX, tileOffsetY, 7, 6, true)
             end if
         next
     next
@@ -55,12 +51,20 @@ end sub
 main:
     randomize ti()
     call enable_40mhz()
-    call fc_init(1, 1, 0, 0)
+    'call fc_init(true, true, 0, 0)
+    call fc_init(true, true, 0, 0, $12000, $14000, $80, clong($0), $81000)
+    call fc_setUniqueTileMode()
     tiles = fc_loadFCI("tiles.fci")
     call fc_loadFCIPalette(tiles)
     call init_hexagons()
     call fc_block(0, 45, 75, 4, $a0, GREY)
     call draw_hexagons()
+
+    print dma_peek($20000)
+    call dma_poke($20000, $aa)
+    print dma_peek($20000)
+    'call fc_fatal()
+    
     'call fc_displayTile(tiles, 20, 20, 0, 0, 7, 6, true)
     'call fc_displayTile(tiles, 25, 23, 0, 0, 7, 6, true)
 loop:
