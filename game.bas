@@ -59,12 +59,10 @@ main:
     call init_hexagons()
 
     ' draw bottom wall
-    call fc_displayTile(tiles, 0, 43, 0, 6, 28, 6, false)
-    call fc_displayTile(tiles, 28, 43, 0, 6, 28, 6, false)
-    call fc_displayTile(tiles, 56, 43, 0, 6, 24, 6, false)
+    call fc_displayTile(tiles, 0, 44, 0, 6, 28, 6, false)
+    call fc_displayTile(tiles, 28, 44, 0, 6, 28, 6, false)
+    call fc_displayTile(tiles, 56, 44, 0, 6, 24, 6, false)
     ' draw hexagons
     call draw_hexagons()
-
-    call fc_putsxy(0, 49, "Score: 0")
 loop:
     goto loop
