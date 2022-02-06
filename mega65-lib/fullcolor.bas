@@ -1,5 +1,56 @@
 ' Implements functions to set up and use the full color mode
 ' on the MEGA65 computer.
+'
+' Control:
+' - fc_init
+' - fc_fatal
+' - fc_go8bit
+'
+' Bitmaps:
+' - fc_loadFCI
+' - fc_loadFCIPalette
+' - fc_displayFCI
+' - fc_displayFCIFile
+' - fc_displayTile
+' - fc_resetPalette
+' - fc_loadReservedBitmap
+' - fc_setUniqueTileMode
+'
+' Text input:
+' - fc_cursor
+' - fc_getkey
+' - fc_input
+' - fc_getkeyP
+'
+' Screen Layout
+' - fc_setwin
+' - fc_clrscr
+' - fc_resetwin
+' - fc_scrollUp
+' - fc_scrollDown
+' - fc_wherex
+' - fc_wherey
+' - fc_gotoxy
+
+' Text output:
+' - fc_setfont
+' - fc_setAutoCR
+' - fc_textcolor
+' - fc_flash
+' - fc_revers
+' - fc_bold
+' - fc_underline
+' TODO: all text output routines below should use gCurrentFont
+' - fc_plotPetsciiChar
+' - fc_line
+' - fc_block
+' - fc_puts
+' - fc_puts
+' - fc_putsxy
+' - fc_putcxy
+' - fc_center
+' - fc_hlinexy
+' - fc_vlinexy
 
 const TOPBORDER_PAL = $58
 const BOTTOMBORDER_PAL = $1e8
@@ -12,8 +63,9 @@ type Config
     palettebase as long  ' loaded palettes base
     bitmapbase as long   ' loaded bitmaps base
     colorbase as long    ' attribute/color ram
-    bitmapbase_high as byte ' usually $00, but could be $80 if 
-                            ' uniqueMode stores bitmaps in attic RAM
+    bitmapbase_high as byte 
+    ' bitmapbase_high is usually $00, but could be $80
+    ' if uniqueMode stores bitmaps in attic RAM
 end type
 
 type TextWindow
@@ -38,6 +90,7 @@ type fciInfo
 end type
 
 dim gConfig as Config shared
+dim gCurrentFont as int           ' -1 if text, else use gCurrentFont fci
 dim gCurrentWindow as byte shared ' current window (1 - MAX_WINDOWS)
 dim gScreenSize as word shared
 dim gScreenRows as byte shared    ' number of screen rows (in characters)
@@ -55,10 +108,10 @@ dim uniqueTileMode as byte    ' if set, uses $20000 - $5ffff for tiles
                               ' that can be modified independently
 
 const MAX_WINDOWS =  8
-const MAX_FCI_BLOCKS = 16
+const MAX_FCI = 16
 
 dim windows(MAX_WINDOWS) as TextWindow @$700
-dim infoBlocks(MAX_FCI_BLOCKS) as fciInfo @600
+dim fci(MAX_FCI) as fciInfo @600
 
 dim autocr as byte
 dim csrflag as byte
@@ -195,7 +248,7 @@ end function
 function fc_nextInfoBlock as byte () static
     dim info as byte
     ' find a free block
-    if infoBlockCount = MAX_FCI_BLOCKS then call fc_fatal("Out of blocks")
+    if infoBlockCount = MAX_FCI then call fc_fatal("Out of blocks")
     info = infoBlockCount
     infoBlockCount = infoBlockCount + 1
     return infoBlockCount
@@ -217,22 +270,22 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
 
 
     load "tiles.fci", 8, base+2 ' compensate for two missing bytes
-    infoBlocks(info).rows = peek(base + 5)
-    infoBlocks(info).columns = peek(base + 6)
+    fci(info).rows = peek(base + 5)
+    fci(info).columns = peek(base + 6)
     options = peek(base + 7)
-    infoBlocks(info).paletteSize  = peek(base + 8)
+    fci(info).paletteSize  = peek(base + 8)
 
-    infoBlocks(info).reservedSysPalette = (options and 2)
-    infoBlocks(info).size  = cword(64) * infoBlocks(info).rows * infoBlocks(info).columns
-    paletteMemSize = (cword(1) + infoBlocks(info).paletteSize) * 3
+    fci(info).reservedSysPalette = (options and 2)
+    fci(info).size  = cword(64) * fci(info).rows * fci(info).columns
+    paletteMemSize = (cword(1) + fci(info).paletteSize) * 3
     bitmapSourceAddress = base + 9 + paletteMemSize + 3 ' 3 is for IMG
 
-    infoBlocks(info).paletteAdr = fc_allocPalMem(paletteMemSize)
-    call dma_copy(clong(base + 9), infoBlocks(info).paletteAdr, paletteMemSize)
+    fci(info).paletteAdr = fc_allocPalMem(paletteMemSize)
+    call dma_copy(clong(base + 9), fci(info).paletteAdr, paletteMemSize)
 
-    infoBlocks(info).baseAdr = fc_allocGraphMem(infoBlocks(info).size)
+    fci(info).baseAdr = fc_allocGraphMem(fci(info).size)
 
-    call dma_copy(0, bitmapSourceAddress, gConfig.bitmapbase_high, infoBlocks(info).baseAdr, infoBlocks(info).size)
+    call dma_copy(0, bitmapSourceAddress, gConfig.bitmapbase_high, fci(info).baseAdr, fci(info).size)
     return info
 end function
 
@@ -361,6 +414,10 @@ function asciiToPetscii as byte (c as byte) static
     return c
 end function
 
+sub fc_setfont(font as int) shared static
+    gCurrentFont = font
+end sub
+
 sub fc_putc(c as byte) static
     dim out as byte
     if c = 13 then call cr(): return
@@ -461,18 +518,18 @@ sub adjustBorders(extrarows as byte, extracolumns as byte) static
 end sub
 
 sub fc_loadFCIPalette(info as byte) shared static
-    call fc_loadPalette(infoBlocks(info).paletteAdr, infoBlocks(info).paletteSize, infoBlocks(info).reservedSysPalette)
+    call fc_loadPalette(fci(info).paletteAdr, fci(info).paletteSize, fci(info).reservedSysPalette)
 end sub
 
 sub fc_fadeFCI(info as byte, x0 as byte, y0 as byte, steps as byte) static
-    call fc_zeroPalette(infoBlocks(info).reservedSysPalette)
-    call fc_addGraphicsRect(x0, y0, infoBlocks(info).columns, infoBlocks(info).rows, infoBlocks(info).baseAdr)
-    call fc_fadePalette(infoBlocks(info).paletteAdr, infoBlocks(info).paletteSize, infoBlocks(info).reservedSysPalette, steps, false)
+    call fc_zeroPalette(fci(info).reservedSysPalette)
+    call fc_addGraphicsRect(x0, y0, fci(info).columns, fci(info).rows, fci(info).baseAdr)
+    call fc_fadePalette(fci(info).paletteAdr, fci(info).paletteSize, fci(info).reservedSysPalette, steps, false)
 end sub
 
 
 sub fc_displayFCI(info as byte, x0 as byte, y0 as byte, setPalette as byte) shared static
-    call fc_addGraphicsRect(x0, y0, infoBlocks(info).columns, infoBlocks(info).rows, infoBlocks(info).baseAdr)
+    call fc_addGraphicsRect(x0, y0, fci(info).columns, fci(info).rows, fci(info).baseAdr)
     if setPalette then call fc_loadFCIPalette(info)
 end sub
 
@@ -492,7 +549,7 @@ sub fc_displayTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byt
     for y as byte = t_y to t_y + t_h -1
         screenAddr = gConfig.screenbase + 2 *(x0 + (y0 + y - t_y) * cword(gScreenColumns))
         if uniqueTileMode then
-            fromTileAddr = infoBlocks(info).baseAdr + clong(64)*(t_x + (y * clong(infoBlocks(info).columns)))
+            fromTileAddr = fci(info).baseAdr + clong(64)*(t_x + (y * clong(fci(info).columns)))
             ' copy bitmap asset to location in $2xxxx - $5xxxx
             toTileAddr = $20000 + clong(64) * (x0 + ((y + y0) * clong(gScreenColumns)))
             ' skip over C64 kernal
@@ -504,7 +561,7 @@ sub fc_displayTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byt
                 call dma_copy(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64 * cword(t_w))
             end if
         else
-            charIndex = cword(infoBlocks(info).baseAdr / 64) + t_x + (y * infoBlocks(info).columns)
+            charIndex = cword(fci(info).baseAdr / 64) + t_x + (y * fci(info).columns)
         end if
         for x as byte = t_x to t_x + t_w - 1
             ' set highbyte first to avoid blinking
@@ -804,6 +861,7 @@ sub fc_real_init(h640 as byte, v400 as byte, rows as byte, columns as byte) stat
     autoCR = TRUE
 
     call fc_screenmode(h640, v400, rows, columns)
+    call fc_setfont(-1)
     call fc_textcolor(GREEN)
 end sub
 
@@ -812,7 +870,7 @@ sub fc_init(h640 as byte, v400 as byte, rows as byte, columns as byte) shared st
     gConfig.screenbase = $12000
     gConfig.palettebase = $14000
     gConfig.bitmapbase_high = $00
-    gConfig.bitmapbase = gConfig.palettebase + MAX_FCI_BLOCKS * 256 * 3
+    gConfig.bitmapbase = gConfig.palettebase + MAX_FCI * 256 * 3
     gConfig.colorbase = $81000 ' $0ff ...
     call fc_real_init(h640, v400, rows, columns)
 end sub
