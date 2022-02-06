@@ -797,7 +797,8 @@ sub fc_loadReservedBitmap(name as String * 80) shared static
 end sub
 
 sub fc_clearUniqueTiles() static
-    'TODO call dma_fill($20000, 0, $8000)
+    call dma_fill($20000, 0, cword($8000))
+    ' skip over C64 kernal
     call dma_fill($28000, 0, cword($6000))
     call dma_fill($30000, 0, $8000)
     call dma_fill($38000, 0, $8000)
@@ -808,12 +809,14 @@ sub fc_clearUniqueTiles() static
 end sub
 
 sub fc_setUniqueTileMode() shared static
+    dim b as byte
+    dim a as long: a = $20000
     if uniqueTileMode = false then
-        uniqueTileMode = true
         ' Bank out the C64/C65 ROM, freeing $2xxxx and $3xxxx.
         ' But, assuming that the program is started from C64
         ' mode, we still need the kernal, so avoid writing on
         ' 2e000 - 2ffff.
+        b =  dma_peek(a)
         asm
             ; Since dasm doesn't allow 4510 opcodes I have
             ; written the assembler in acme, made a hexdump and
@@ -834,6 +837,9 @@ sub fc_setUniqueTileMode() shared static
             byte $8d, $40, $d6  ; sta $d640
             byte $ea            ; nop
         end asm
+        call dma_poke(a, b + 1)
+        if dma_peek(a) <> b + 1 then call fc_fatal("Banking failed")
+        uniqueTileMode = true
         call fc_clearUniqueTiles()
     end if 
 end sub

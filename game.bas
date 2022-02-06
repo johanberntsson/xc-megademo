@@ -53,19 +53,16 @@ main:
     call enable_40mhz()
     'call fc_init(true, true, 0, 0)
     call fc_init(true, true, 0, 0, $12000, $14000, $80, clong($0), $81000)
+    tiles = fc_loadFCI("tiles.fci") ' TODO: must be before fc_loadFCI
     call fc_setUniqueTileMode()
-    tiles = fc_loadFCI("tiles.fci")
     call fc_loadFCIPalette(tiles)
     call init_hexagons()
-    call fc_block(0, 45, 75, 4, $a0, GREY)
-    call draw_hexagons()
+    call fc_displayTile(tiles, 0, 42, 0, 6, 28, 6, false)
+    call fc_displayTile(tiles, 28, 43, 0, 6, 28, 6, false)
+    call fc_displayTile(tiles, 56, 44, 0, 6, 24, 6, false)
 
-    print dma_peek($20000)
-    call dma_poke($20000, $aa)
-    print dma_peek($20000)
-    'call fc_fatal()
-    
-    'call fc_displayTile(tiles, 20, 20, 0, 0, 7, 6, true)
-    'call fc_displayTile(tiles, 25, 23, 0, 0, 7, 6, true)
+    call fc_displayTile(tiles, 20, 44, 0, 0, 7, 6, true)
+
+    'call draw_hexagons()
 loop:
     goto loop
