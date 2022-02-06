@@ -293,8 +293,8 @@ sub fc_line(x as byte, y as byte, width as byte, character as byte, col as byte)
     ' use DMAgic to fill FCM screens with skip byte... PGS, I love you!
     call dma_fill_skip(gConfig.screenBase + bas, character, w, 2)
     call dma_fill_skip(gConfig.screenBase + bas + 1, 0, w, 2)
-    call dma_fill_skip(gConfig.colorBase + bas, 0, w, 2)
-    call dma_fill_skip(gConfig.colorBase + bas + 1, col, w, 2)
+    call dma_fill_skip($ff, gConfig.colorBase + bas, 0, w, 2)
+    call dma_fill_skip($ff, gConfig.colorBase + bas + 1, col, w, 2)
 end sub
 
 sub fc_block(x0 as byte, y0 as byte, width as byte, height as byte, character as byte, col as byte) shared static
@@ -315,7 +315,7 @@ sub fc_scrollUp() shared static
         call dma_copy(bas1, bas0, w)
         bas0 = gConfig.colorBase + (clong(windows(gCurrentWindow).x0) * 2 + (y * gScreenColumns * 2))
         bas1 = gConfig.colorBase + (clong(windows(gCurrentWindow).x0) * 2 + ((y + 1) * gScreenColumns * 2))
-        call dma_copy(bas1, bas0, w)
+        call dma_copy($ff, bas1, $ff, bas0, w)
     next
     call fc_line(0, windows(gCurrentWindow).height - 1, windows(gCurrentWindow).width, 32, windows(gCurrentWindow).textcolor)
 end sub
@@ -332,7 +332,7 @@ sub fc_scrollDown() shared static
         call dma_copy(bas0, bas1, w)
         bas0 = gConfig.colorBase + (clong(windows(gCurrentWindow).x0) * 2 + (y * gScreenColumns * 2))
         bas1 = gConfig.colorBase + (clong(windows(gCurrentWindow).x0) * 2 + ((y + 1) * gScreenColumns * 2))
-        call dma_copy(bas0, bas1, w)
+        call dma_copy($ff, bas0, $ff, bas1, w)
     next
 
     call fc_line(0, 0, windows(gCurrentWindow).width, 32, windows(gCurrentWindow).textcolor)

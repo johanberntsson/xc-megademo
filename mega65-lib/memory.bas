@@ -1,10 +1,5 @@
 ' Implements DMA operations for quick data transfer and access to
 ' higher memory (bank 1 - 5 and attic RAM)
-'
-' Shared functions:
-' dma_poke
-' dma_fill
-' dma_fill_skip
 
 type Dmalist
     option_0b as byte
@@ -92,7 +87,8 @@ sub dma_fill_skip(highaddress as byte, address as long, value as byte, count as 
     dmalist.command = 3
     dmalist.sub_cmd = 0
     dmalist.count = count
-    dmalist.source_addr = value
+    dmalist.source_addr = cword(value)
+    dmalist.source_bank = 0
     dmalist.dest_addr = cword(address)
     dmalist.dest_bank = BYTE2(address) and $0f
     call do_dma()
