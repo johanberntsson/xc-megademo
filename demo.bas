@@ -17,7 +17,8 @@ main:
     tiles = fc_loadFCI("tiles.fci")
     call fc_loadFCIPalette(tiles)
     call fc_displayFCI(tiles, 0, 0, true)
-    call fc_displayTile(tiles, 20, 20, 0, 0, 6, 7, true)
+    call fc_displayTile(tiles, 20, 20, 0, 0, 7, 6, true)
+    call fc_displayTile(tiles, 25, 23, 0, 0, 7, 6, true)
 
     call fc_gotoxy(0,14)
     call fc_puts("What is your name? ")

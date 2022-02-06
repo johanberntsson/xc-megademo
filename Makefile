@@ -14,7 +14,7 @@ FCIS := $(subst img-src, res, $(PNGS:%.png=%.fci))
 # phony target is simply a target that is always out-of-date
 .PHONY: demo, game, all, clean
 
-all: demo
+all: game
 
 demo: demo.d81
 	$(XEMU) -8 demo.d81
