@@ -51,10 +51,7 @@ end sub
 main:
     randomize ti()
     call enable_40mhz()
-    call fc_init(true, true, 0, 0)
-    ' Where we will allow merging of tiles 
-    ' (the whole screen takes too much memory)
-    call fc_setUniqueTileMode(2, 3, 72, 45)
+    call fc_init(true, true, true, 0, 0)
     tiles = fc_loadFCI("tiles.fci") 
     call fc_loadFCIPalette(tiles)
     call init_hexagons()

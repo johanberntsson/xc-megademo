@@ -560,9 +560,9 @@ sub fc_displayTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byt
             ' copy bitmap asset to location in bitmap_mirror - $5xxxx
             toTileAddr = gConfig.bitmap_mirror + 64 * (x0 + (clong(gScreenColumns) * (y + y0)))
             ' skip over DOS
-            if toTileAddr >= $20000 then toTileAddr = toTileAddr + $4000
+            if toTileAddr >= $1f800 then toTileAddr = toTileAddr + $4800
             ' skip over C64 kernal
-            if toTileAddr >= $2dd00 then toTileAddr = toTileAddr + $2300
+            if toTileAddr >= $2c000 then toTileAddr = toTileAddr + $4000
             charIndex = cword(toTileAddr / 64)
             if mergeTiles then
                 call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64 * cword(t_w), 0)
@@ -806,11 +806,10 @@ sub fc_loadReservedBitmap(name as String * 80) shared static
 end sub
 
 sub fc_clearUniqueTiles() static
-    call dma_fill($1c000, 0, cword($4000))
     ' skip over DOS
-    call dma_fill($24000, 0, cword($4000))
+    call dma_fill($18000, 0, cword($7800))
     ' skip over C64 kernal
-    call dma_fill($28000, 0, cword($6000))
+    call dma_fill($24000, 0, cword($8000))
     call dma_fill($30000, 0, $8000)
     call dma_fill($38000, 0, $8000)
     call dma_fill($40000, 0, $8000)
@@ -821,33 +820,35 @@ end sub
 
 sub fc_setUniqueTileMode(x0 as byte, y0 as byte, width as byte, height as byte) shared static
     dim b as byte
-    dim a as long: a = gConfig.bitmap_mirror
+    dim a as long: a = $30000
     if uniqueTileMode = false then
-        ' Bank out the C64/C65 ROM, freeing $2xxxx and $3xxxx.
+        ' Bank out the C64/C65 ROM, freeing $18000 - $3xxxx.
         ' But, assuming that the program is started from C64
-        ' mode, we still need the kernal, so avoid writing on
-        ' 2e000 - 2ffff.
+        ' mode, we still need the kernal and DOS, so avoid
+        ' writing on $1f800 - $24000 and $2c000 - $30000
         b =  dma_peek(a)
         asm
             ; Since dasm doesn't allow 4510 opcodes I have
             ; written the assembler in acme, made a hexdump and
             ; stored it here
-            byte $a9, $00       ; lda #$00
-            byte $aa            ; tax
-            byte $a8            ; tay
-            byte $4b            ; taz
-            byte $5c            ; map
-            byte $a9, $36       ; lda #$36 (no basic)
-            byte $85, $01       ; sta $01
-            byte $a9, $47       ; lda #$47
-            byte $8d, $2f, $d0  ; sta $d02f
-            byte $a9, $53       ; lda #$53
-            byte $8d, $2f, $d0  ; sta $d02f
-            byte $ea            ; eom
+            ;byte $a9, $00       ; lda #$00
+            ;byte $aa            ; tax
+            ;byte $a8            ; tay
+            ;byte $4b            ; taz
+            ;byte $5c            ; map
+            ;byte $a9, $36       ; lda #$36 (no basic)
+            ;byte $85, $01       ; sta $01
+            ;byte $a9, $47       ; lda #$47
+            ;byte $8d, $2f, $d0  ; sta $d02f
+            ;byte $a9, $53       ; lda #$53
+            ;byte $8d, $2f, $d0  ; sta $d02f
+            ;byte $ea            ; eom
+            ; call MEGA65 hypervisor to remove write protection
             byte $a9, $70       ; lda #$70
             byte $8d, $40, $d6  ; sta $d640
             byte $ea            ; nop
         end asm
+        ' check if we can write to the new RAM (banking worked)
         call dma_poke(a, b + 1)
         if dma_peek(a) <> b + 1 then call fc_fatal("Banking failed")
         call fc_clearUniqueTiles()
@@ -866,7 +867,7 @@ sub fc_setUniqueTileMode(x0 as byte, y0 as byte, width as byte, height as byte) 
     end if 
 end sub
 
-sub fc_real_init(h640 as byte, v400 as byte, rows as byte, columns as byte) static
+sub fc_real_init(h640 as byte, v400 as byte, unique as byte, rows as byte, columns as byte) static
     call enable_io()
     poke 53272,23 ' make lowercase
     uniqueTileMode = false
@@ -880,7 +881,7 @@ sub fc_real_init(h640 as byte, v400 as byte, rows as byte, columns as byte) stat
     end if
 
     ' where the sceen bitmap starts in uniqueMode
-    gConfig.bitmap_mirror = $1b000 
+    gConfig.bitmap_mirror = $19000 
 
     firstFreePalMem = gConfig.palettebase
     firstFreeGraphMem = gConfig.bitmapbase
@@ -892,27 +893,19 @@ sub fc_real_init(h640 as byte, v400 as byte, rows as byte, columns as byte) stat
     autoCR = TRUE
 
     call fc_screenmode(h640, v400, rows, columns)
+    if unique then call fc_setUniqueTileMode(0, 0, gScreenColumns, gScreenRows)
+
     call fc_setfont(-1)
     call fc_textcolor(GREEN)
 end sub
 
-sub fc_init(h640 as byte, v400 as byte, rows as byte, columns as byte) shared static
+sub fc_init(h640 as byte, v400 as byte, unique as byte, rows as byte, columns as byte) shared static
     ' standard config
     gConfig.screenbase = $12000
     gConfig.palettebase = $14000
     gConfig.bitmapbase_high = $00
     gConfig.bitmapbase = gConfig.palettebase + MAX_FCI * 256 * 3
     gConfig.colorbase = $81000 ' $0ff ...
-    call fc_real_init(h640, v400, rows, columns)
-end sub
-
-sub fc_init(h640 as byte, v400 as byte, rows as byte, columns as byte, screenbase as long, palettebase as long, bitmap_high as byte, bitmapbase as long, colorbase as long) overload shared static
-    ' use users supplied config parameters
-    gConfig.screenbase = screenbase
-    gConfig.palettebase = palettebase
-    gConfig.bitmapbase_high = bitmap_high
-    gConfig.bitmapbase = bitmapbase
-    gConfig.colorbase = colorbase
-    call fc_real_init(h640, v400, rows, columns)
+    call fc_real_init(h640, v400, unique, rows, columns)
 end sub
 

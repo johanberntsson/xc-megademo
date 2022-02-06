@@ -8,7 +8,7 @@ main:
     dim name as String*80
 
     call enable_40mhz()
-    call fc_init(1, 1, 0, 0)
+    call fc_init(true, true, false, 0, 0)
 
     call fc_plotPetsciiChar(0, 20, $35, WHITE, 0)
     call fc_plotPetsciiChar(2, 17, $30, RED, 0)
