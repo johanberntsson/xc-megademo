@@ -105,8 +105,14 @@ dim firstFreeGraphMem as long ' first free graphics block
 dim firstFreePalMem as long   ' first free palette memory block
 dim nextFreeGraphMem as long  ' location of next free graphics block
 dim nextFreePalMem as long    ' location of next free palette memory block
-dim uniqueTileMode as byte    ' if set, uses bitmap_mirror - $5ffff for tiles
-                              ' that can be modified independently
+
+' if set, uses bitmap_mirror - $5ffff for tiles
+' that can be modified independently
+dim uniqueTile_X0 as byte
+dim uniqueTile_Y0 as byte
+dim uniqueTile_Width as byte
+dim uniqueTile_Height as byte
+dim uniqueTileMode as byte    
 
 const MAX_WINDOWS =  8
 const MAX_FCI = 16
@@ -813,7 +819,7 @@ sub fc_clearUniqueTiles() static
     call dma_fill($58000, 0, $8000)
 end sub
 
-sub fc_setUniqueTileMode() shared static
+sub fc_setUniqueTileMode(x0 as byte, y0 as byte, width as byte, height as byte) shared static
     dim b as byte
     dim a as long: a = gConfig.bitmap_mirror
     if uniqueTileMode = false then
@@ -844,13 +850,19 @@ sub fc_setUniqueTileMode() shared static
         end asm
         call dma_poke(a, b + 1)
         if dma_peek(a) <> b + 1 then call fc_fatal("Banking failed")
-        uniqueTileMode = true
         call fc_clearUniqueTiles()
+
+        uniqueTileMode = true
+        uniqueTile_X0 = x0
+        uniqueTile_Y0 = y0
+        uniqueTile_Width = width
+        uniqueTile_Height = height
 
         if fciCount > 1 then call fc_fatal("Unique will destroy bitmaps")
         gConfig.bitmapbase = clong(0)
         gConfig.bitmapbase_high = $80
         call fc_freeGraphAreas()
+
     end if 
 end sub
 
