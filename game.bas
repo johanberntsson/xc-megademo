@@ -20,14 +20,14 @@ dim tiles as byte
 dim map(GAME_WIDTH, GAME_HEIGHT) as Hexagon
 
 cursorsprite:
-    data as byte $ff,$80,$00,$ff,$80,$00,$ff,$00
-    data as byte $00,$fe,$00,$00,$ff,$00,$00,$ff
-    data as byte $80,$00,$ff,$c0,$00,$cf,$e0,$00
-    data as byte $87,$f0,$00,$03,$f8,$00,$01,$fc
-    data as byte $00,$00,$fe,$00,$00,$7e,$00,$00
-    data as byte $3c,$00,$00,$18,$00,$00,$00,$00
-    data as byte $00,$00,$00,$00,$00,$00,$00,$00
-    data as byte $00,$00,$00,$00,$00,$00,$00,$01
+data as byte $00,$00,$00,$aa,$a0,$00,$95,$60
+data as byte $00,$95,$60,$00,$95,$80,$00,$95
+data as byte $80,$00,$95,$60,$00,$95,$58,$00
+data as byte $99,$56,$00,$9a,$55,$80,$a0,$95
+data as byte $60,$80,$25,$60,$00,$09,$80,$00
+data as byte $02,$00,$00,$00,$00,$00,$00,$00
+data as byte $00,$00,$00,$00,$00,$00,$00,$00
+data as byte $00,$00,$00,$00,$00,$00,$00,$81
 dim spritedata(64) as byte @cursorsprite
 
 sub set_sprite(x as byte, y as byte) static
@@ -60,9 +60,14 @@ sub show_sprite() static
     poke cword(spritepointers + 1), BYTE1(spritelocation)
 
     poke VIC2, 150
-    poke VIC2+1, 150 
-    poke VIC2+21, 1
-    poke VIC2+39, GREY
+    poke VIC2 + 1, 150 
+    poke VIC2 + 21, 1
+    poke VIC2 + 23, 1 ' expand y
+    poke VIC2 + 28, 1 ' hires/multicolor
+    poke VIC2 + 29, 1 ' expand x
+    poke VIC2 + 37, DGREY
+    poke VIC2 + 38, YELLOW
+    poke VIC2 + 39, WHITE
 end sub
 
 sub init_hexagons() static
