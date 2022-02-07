@@ -268,6 +268,7 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
     dim adrTo as long
     dim adrFrom as long
     dim options as byte
+    dim compressed as byte
 
     open 2,8,2, filename
     ' skip fciP
@@ -282,9 +283,11 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
     read #2, b: options = b
     read #2, b: fci(info).paletteSize = b
 
+    compressed = (options and 1)
+    fci(info).reservedSysPalette = (options and 2)
+
     ' read palette
     size = fci(info).paletteSize
-    fci(info).reservedSysPalette = (options and 2)
     adrTo = fc_allocPalMem(3 * size)
     fci(info).paletteAdr = adrTo
     adrFrom = $400
@@ -308,15 +311,46 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
     adrTo = fc_allocGraphMem(size)
     fci(info).baseAdr = adrTo
     adrFrom = $400
-    for i as byte = 0 to BYTE1(size)
-        if i = BYTE1(size) then n = BYTE0(size) else n = 255
-        for j as byte = 0 to n
+
+    dim lastb as word
+    dim totRead as word
+    dim count as byte
+
+    n = 0
+    count = 0
+    totRead = 0
+
+
+    ' if compressed = true, then the data is RLE encoded
+    ' with repeated numbers being the compression marker
+    ' <num> <num> <count> means that the output contains
+    ' <count> number of <num>
+    do while cint(totRead) < cint(size) ' TODO: why cast?
+        if count > 0 then
+            count = count - 1
+        else 
             read #2, b
-            poke cword(adrFrom + j), b
-        next
-        call dma_copy(0, adrFrom, gConfig.bitmapbase_high, adrTo, cword(n + 1))
-        adrTo = adrTo + n + 1
-    next
+            if compressed = true and b = lastb then
+                ' double entry found, should be followed by
+                ' a count (but skip if nothing read yet)
+                if totRead > 0 then 
+                    read #2, count
+                    count = count - 2
+                end if
+            end if
+            lastb = b
+        end if
+        poke cword(adrFrom + n), b
+        totRead = totRead + 1
+        if n = $ff then
+            ' buffer is full, copy to destination
+            call dma_copy(0, adrFrom, gConfig.bitmapbase_high, adrTo, cword(n + 1))
+            adrTo = adrTo + n + 1
+            n = 0
+        else
+            n = n + 1
+        end if
+    loop
     close 2
     return info
 end function

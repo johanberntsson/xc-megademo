@@ -19,19 +19,19 @@ end type
 dim tiles as byte
 dim map(GAME_WIDTH, GAME_HEIGHT) as Hexagon
 
-cursorsprite:
-data as byte $00,$00,$00,$aa,$a0,$00,$95,$60
-data as byte $00,$95,$60,$00,$95,$80,$00,$95
-data as byte $80,$00,$95,$60,$00,$95,$58,$00
-data as byte $99,$56,$00,$9a,$55,$80,$a0,$95
-data as byte $60,$80,$25,$60,$00,$09,$80,$00
-data as byte $02,$00,$00,$00,$00,$00,$00,$00
-data as byte $00,$00,$00,$00,$00,$00,$00,$00
-data as byte $00,$00,$00,$00,$00,$00,$00,$81
-dim spritedata(64) as byte @cursorsprite
+amigacursorsprite:
+data as byte $ff,$f0,$00,$ea,$ac,$00,$ea,$ac
+data as byte $00,$d5,$6c,$00,$d5,$6c,$00,$d5
+data as byte $b0,$00,$d5,$b0,$00,$d5,$6c,$00
+data as byte $d5,$6c,$00,$d7,$5b,$00,$d7,$5b
+data as byte $00,$3c,$d6,$c0,$3c,$d6,$c0,$00
+data as byte $35,$b0,$00,$35,$b0,$00,$0d,$6c
+data as byte $00,$0d,$6c,$00,$03,$70,$00,$03
+data as byte $70,$00,$00,$c0,$00,$00,$c0,$81
+dim spritedata(64) as byte @amigacursorsprite
 
 sub set_sprite(x as byte, y as byte) static
-    x = 200: y = 229
+    x = 120: y = 110
     poke VIC2, x
     poke VIC2 + 1, y
 end sub
@@ -62,12 +62,13 @@ sub show_sprite() static
     poke VIC2, 150
     poke VIC2 + 1, 150 
     poke VIC2 + 21, 1
-    poke VIC2 + 23, 1 ' expand y
+    poke VIC2 + 23, 0 ' expand y
     poke VIC2 + 28, 1 ' hires/multicolor
-    poke VIC2 + 29, 1 ' expand x
-    poke VIC2 + 37, DGREY
-    poke VIC2 + 38, YELLOW
-    poke VIC2 + 39, WHITE
+    poke VIC2 + 29, 0 ' expand x
+    ' RED, BLACK, WHITE is the classic Amiga color
+    poke VIC2 + 37, RED 
+    poke VIC2 + 38, BLACK
+    poke VIC2 + 39, YELLOW
 end sub
 
 sub init_hexagons() static
