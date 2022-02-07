@@ -265,15 +265,7 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
     dim options as byte
     dim paletteMemSize as word
     dim bitmapSourceAddress as long
-    dim base as word
-
-    ' TODO: this should be rewritten as
-    ' open 2,8,2,"tiles"
-    ' read #2, header
-    ' read #2, ...
-    ' close 2
-    ' but currently there is a bug stopping it in xc-basic 3
-    base = $6000
+    dim base as word: base = $6000
 
 
     load "tiles.fci", 8, base+2 ' compensate for two missing bytes
@@ -293,6 +285,66 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
     fci(info).baseAdr = fc_allocGraphMem(fci(info).size)
 
     call dma_copy(0, bitmapSourceAddress, gConfig.bitmapbase_high, fci(info).baseAdr, fci(info).size)
+    return info
+end function
+
+function fc_loadFCINew as byte (info as byte, filename as String * 20) shared static
+    dim b as byte
+    dim n as byte
+    dim size as word
+    dim adrTo as long
+    dim adrFrom as long
+    dim options as byte
+
+    open 2,8,2, filename
+    ' skip fciP
+    read #2, b
+    read #2, b
+    read #2, b
+    read #2, b
+    ' skip version
+    read #2, b
+    read #2, b: fci(info).rows = b
+    read #2, b: fci(info).columns = b
+    read #2, b: options = b
+    read #2, b: fci(info).paletteSize = b
+
+    ' read palette
+    size = fci(info).paletteSize
+    fci(info).reservedSysPalette = (options and 2)
+    adrTo = fc_allocPalMem(3 * size)
+    fci(info).paletteAdr = adrTo
+    adrFrom = $400
+    for i as byte = 0 to 2
+        for j as word = 0 to size
+            read #2, b
+            poke cword(adrFrom + j), b
+        next
+        call dma_copy(adrFrom, adrTo, size)
+        adrTo = adrTo + size
+    next
+
+    ' skip IMG
+    read #2, b
+    read #2, b
+    read #2, b
+
+    ' read bitmap info
+    size = cword(64) * fci(info).rows * fci(info).columns
+    fci(info).size  = size
+    adrTo = fc_allocGraphMem(size)
+    fci(info).baseAdr = adrTo
+    adrFrom = $400
+    for i as byte = 0 to BYTE1(size)
+        if i = BYTE1(size) then n = BYTE0(size) else n = $ff
+        for j as word = 0 to size
+            read #2, b
+            poke cword(adrFrom + j), b
+        next
+        call dma_copy(adrFrom, adrTo, cword(n))
+        adrTo = adrTo + n
+    next
+    close 2
     return info
 end function
 
