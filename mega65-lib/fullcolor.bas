@@ -262,33 +262,6 @@ function fc_nextInfoBlock as byte () static
 end function
 
 function fc_loadFCI as byte (info as byte, filename as String * 20) shared static
-    dim options as byte
-    dim paletteMemSize as word
-    dim bitmapSourceAddress as long
-    dim base as word: base = $6000
-
-
-    load "tiles.fci", 8, base+2 ' compensate for two missing bytes
-    fci(info).rows = peek(base + 5)
-    fci(info).columns = peek(base + 6)
-    options = peek(base + 7)
-    fci(info).paletteSize  = peek(base + 8)
-
-    fci(info).reservedSysPalette = (options and 2)
-    fci(info).size  = cword(64) * fci(info).rows * fci(info).columns
-    paletteMemSize = (cword(1) + fci(info).paletteSize) * 3
-    bitmapSourceAddress = base + 9 + paletteMemSize + 3 ' 3 is for IMG
-
-    fci(info).paletteAdr = fc_allocPalMem(paletteMemSize)
-    call dma_copy(clong(base + 9), fci(info).paletteAdr, paletteMemSize)
-
-    fci(info).baseAdr = fc_allocGraphMem(fci(info).size)
-
-    call dma_copy(0, bitmapSourceAddress, gConfig.bitmapbase_high, fci(info).baseAdr, fci(info).size)
-    return info
-end function
-
-function fc_loadFCINew as byte (info as byte, filename as String * 20) shared static
     dim b as byte
     dim n as byte
     dim size as word
@@ -320,8 +293,8 @@ function fc_loadFCINew as byte (info as byte, filename as String * 20) shared st
             read #2, b
             poke cword(adrFrom + j), b
         next
-        call dma_copy(adrFrom, adrTo, size)
-        adrTo = adrTo + size
+        call dma_copy(adrFrom, adrTo, size + 1)
+        adrTo = adrTo + size + 1
     next
 
     ' skip IMG
@@ -336,13 +309,13 @@ function fc_loadFCINew as byte (info as byte, filename as String * 20) shared st
     fci(info).baseAdr = adrTo
     adrFrom = $400
     for i as byte = 0 to BYTE1(size)
-        if i = BYTE1(size) then n = BYTE0(size) else n = $ff
-        for j as word = 0 to size
+        if i = BYTE1(size) then n = BYTE0(size) else n = 255
+        for j as byte = 0 to n
             read #2, b
             poke cword(adrFrom + j), b
         next
-        call dma_copy(adrFrom, adrTo, cword(n))
-        adrTo = adrTo + n
+        call dma_copy(0, adrFrom, gConfig.bitmapbase_high, adrTo, cword(n + 1))
+        adrTo = adrTo + n + 1
     next
     close 2
     return info
