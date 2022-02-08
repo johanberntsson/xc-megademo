@@ -47,6 +47,13 @@ function y_array2hex as byte (x as byte, y as byte) shared static
     return y * 2 + (x mod 2)
 end function
 
+x_adjacenthexagons:
+data as int -1, -1, 0, 1, 1, 0
+y_adjacenthexagons:
+data as int -1, 1, 2, 1, -1, -2
+dim dx(6) as int @x_adjacenthexagons
+dim dy(6) as int @y_adjacenthexagons
+
 amigacursorsprite:
 data as byte $ff,$f0,$00,$ea,$ac,$00,$ea,$ac
 data as byte $00,$d5,$6c,$00,$d5,$6c,$00,$d5
@@ -151,18 +158,45 @@ function draw_hexagons as byte () static
     return numTiles
 end sub
 
-sub remove_brick(hex_x as int, hex_y as int) static
+sub refresh_adjacent(hex_x as byte, hex_y as byte) static
+    return ' TODO
+    dim hx as int
+    dim hy as int
+    dim x as byte
+    dim y as byte
+    
+    for i as byte = 0 to 5
+        hx = hex_x + dx(i)
+        hy = hex_y + dy(i)
+        if hx > 0 and hy > 0 then
+            x = x_hex2array(cbyte(hx), cbyte(hy))
+            y = x_hex2array(cbyte(hx), cbyte(hy))
+            if x < GAME_WIDTH and y < GAME_HEIGHT then
+                if map(x,y).isbrick then map(x,y).redraw = true
+            end if
+        end if
+    next
+end sub
+
+sub remove_brick(hex_x as byte, hex_y as byte) static
     dim x as byte: x = x_hex2array(hex_x, hex_y)
     dim y as byte: y = y_hex2array(hex_x, hex_y)
     map(x, y).isbrick = false
+    call refresh_adjacent(hex_x, hex_y)
     'print "break", hex_x;","; hex_y,x;",";y
 end sub
 
+function is_valid_hex as byte (hex_x as byte, hex_y as byte) static
+    ' negative x and y are 254 or 255, so will be caught below
+    'if hex_x >= 254 then return false
+    'if hex_y >= 254 then return false
+    if hex_x >= GAME_WIDTH then return false
+    if hex_y >= 2 * GAME_HEIGHT then return false
+    return true
+end function
+
 sub add_brick_to_queue(hex_x as byte, hex_y as byte, color as byte) static
-    if hex_x = 255 then return
-    if hex_y = 255 then return
-    if hex_x >= GAME_WIDTH then return
-    if hex_y >= 2 * GAME_HEIGHT then return
+    if is_valid_hex(hex_x, hex_y) = false then return
 
     dim x as byte: x = x_hex2array(hex_x, hex_y)
     dim y as byte: y = y_hex2array(hex_x, hex_y)
@@ -202,12 +236,9 @@ function break_bricks as byte (hex_x as byte, hex_y as byte) static
         call remove_brick(hex_x, hex_y)
         smashed_bricks = smashed_bricks + 1
         ' adjacent hexagons
-        call add_brick_to_queue(hex_x - 1, hex_y - 1, color)
-        call add_brick_to_queue(hex_x - 1, hex_y + 1, color)
-        call add_brick_to_queue(hex_x    , hex_y + 2, color)
-        call add_brick_to_queue(hex_x + 1, hex_y + 1, color)
-        call add_brick_to_queue(hex_x + 1, hex_y - 1, color)
-        call add_brick_to_queue(hex_x    , hex_y - 2, color)
+        for i as byte = 0 to 5
+            call add_brick_to_queue(cbyte(hex_x + dx(i)), cbyte(hex_y + dy(i)), color)
+        next
         if first = 1 and queue_len = 0 then
             ' not allowed to remove only one brick
             ' put it back
@@ -227,8 +258,8 @@ sub compact_vertically() static
     dim hex_y as byte
     for x as byte = 0 to GAME_WIDTH - 1
         for y as int = GAME_HEIGHT - 1 to 0 step -1
-            hex_x = x_array2hex(x, y)
-            hex_y = y_array2hex(x, y)
+            hex_x = x_array2hex(x, cbyte(y))
+            hex_y = y_array2hex(x, cbyte(y))
             if map(x, y).isbrick = false then
                 'print "hole", hex_x, hex_y
                 hex_z = hex_y - 2
@@ -244,6 +275,7 @@ sub compact_vertically() static
                     map(x, z).isbrick = false
                     map(x, z).redraw = true
                     map(x, y).redraw = true
+                    call refresh_adjacent(hex_x, hex_z)
                 end if
             end if
         next
