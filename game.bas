@@ -220,6 +220,37 @@ function break_bricks as byte (hex_x as byte, hex_y as byte) static
     return smashed_bricks
 end sub
 
+sub compact_vertically() static
+    dim z as byte
+    dim hex_z as byte
+    dim hex_x as byte
+    dim hex_y as byte
+    for x as byte = 0 to GAME_WIDTH - 1
+        for y as int = GAME_HEIGHT - 1 to 0 step -1
+            hex_x = x_array2hex(x, y)
+            hex_y = y_array2hex(x, y)
+            if map(x, y).isbrick = false then
+                'print "hole", hex_x, hex_y
+                hex_z = hex_y - 2
+                z = y_hex2array(hex_x, hex_z)
+                do while hex_z < 254  and map(x, z).isbrick = false
+                    hex_z = hex_z - 2
+                    z = y_hex2array(hex_x, hex_z)
+                loop
+                'print "result", hex_x, hex_z
+                if hex_z < 254 then
+                    map(x, y).color = map(x, z).color
+                    map(x, y).isbrick = map(x, z).isbrick
+                    map(x, z).isbrick = false
+                    map(x, z).redraw = true
+                    map(x, y).redraw = true
+                end if
+            end if
+        next
+    next
+    'call fc_fatal()
+end sub
+
 main:
     dim hex_x as byte
     dim hex_y as byte
@@ -255,6 +286,7 @@ loop:
         hex_x = x_array2hex(x, y)
         hex_y = y_array2hex(x, y)
         call break_bricks(hex_x, hex_y)
+        call compact_vertically()
     end if 
     'if key = 13 then call fc_fatal()
     goto loop
