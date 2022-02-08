@@ -65,6 +65,14 @@ data as byte $00,$0d,$6c,$00,$03,$70,$00,$03
 data as byte $70,$00,$00,$c0,$00,$00,$c0,$81
 dim spritedata(64) as byte @amigacursorsprite
 
+function x_array2screen as byte (x as byte, y as byte)
+    return x * 5 
+end function
+
+function y_array2screen as byte (x as byte, y as byte)
+    return 2 + 6 * y + 3 * (x mod 2)
+end function
+
 function is_valid_hex as byte (hex_x as byte, hex_y as byte) static
     ' negative x and y are 254 or 255, so will be caught below
     'if hex_x >= 254 then return false
@@ -94,19 +102,28 @@ sub refresh_adjacent(hex_x as byte, hex_y as byte) static
 end sub
 
 sub set_sprite(xx as byte, yy as byte) static
+    ' screen coordinates
+    dim xs as byte
+    dim ys as byte
+
     for y as byte = 0 to GAME_HEIGHT - 1
         for x as byte = 0 to GAME_WIDTH - 1
             if map(x,y).hascursor then
                 ' delete old cursor
                 map(x,y).hascursor = false
-                map(x,y).redraw = true
-                call refresh_adjacent(x_array2hex(x, y), y_array2hex(x, y))
+                if map(x,y).isbrick then
+                    map(x,y).redraw = true
+                else
+                    xs = x_array2screen(x, y)
+                    ys = y_array2screen(x, y)
+                    call fc_displayTile(tiles, xs, ys, 0, 6, 7, 6, false)
+                    call refresh_adjacent(x_array2hex(x, y), y_array2hex(x, y))
+                end if
             end if
             if x = xx and y = yy then
                 ' add new cursor
                 map(x,y).hascursor = true
                 map(x,y).redraw = true
-                call refresh_adjacent(x_array2hex(x, y), y_array2hex(x, y))
             end if
         next
     next
@@ -167,8 +184,6 @@ end sub
 
 function draw_hexagons as byte () static
     dim numTiles as byte: numTiles = 0
-    dim tileOffsetX as byte
-    dim tileOffsetY as byte
     dim xx as byte
     dim yy as byte
 
@@ -177,16 +192,11 @@ function draw_hexagons as byte () static
             if map(x,y).isbrick then numTiles = numTiles + 1
             if map(x,y).redraw then
                 map(x,y).redraw = false
+                xx = x_array2screen(x, y)
+                yy = y_array2screen(x, y)
                 if map(x,y).isbrick then
-                    tileOffsetX = 7 * map(x,y).color
-                    tileOffsetY = 0
-                else
-                    tileOffsetX = 0
-                    tileOffsetY = 6
+                    call fc_displayTile(tiles, xx, yy, 7 * map(x,y).color, 0, 7, 6, true)
                 end if 
-                xx = x * 5 
-                yy = 2 + 6 * y + 3 * (x mod 2)
-                call fc_displayTile(tiles, xx, yy, tileOffsetX, tileOffsetY, 7, 6, true)
                 if map(x,y).hascursor then
                     call fc_displayTile(tiles, xx, yy, 7, 6, 7, 6, true)
                 end if
@@ -197,9 +207,14 @@ function draw_hexagons as byte () static
 end sub
 
 sub remove_brick(hex_x as byte, hex_y as byte) static
-    dim x as byte: x = x_hex2array(hex_x, hex_y)
+    dim x as byte: x = x_hex2array(hex_x, hex_y) ' array coordinates
     dim y as byte: y = y_hex2array(hex_x, hex_y)
+    dim xs as byte: xs = x_array2screen(x, y) ' screen coordinates
+    dim ys as byte: ys = y_array2screen(x, y) ' screen coordinates
+
     map(x, y).isbrick = false
+    call fc_displayTile(tiles, xs, ys, 0, 6, 7, 6, false)
+
     call refresh_adjacent(hex_x, hex_y)
     'print "break", hex_x;","; hex_y,x;",";y
 end sub
@@ -261,10 +276,16 @@ function break_bricks as byte (hex_x as byte, hex_y as byte) static
 end sub
 
 sub compact_vertically() static
+    ' array coordinates
     dim z as byte
+    ' screen coordinates
+    dim xs as byte
+    dim ys as byte
+    ' hex coordinates
     dim hex_z as byte
     dim hex_x as byte
     dim hex_y as byte
+
     for x as byte = 0 to GAME_WIDTH - 1
         for y as int = GAME_HEIGHT - 1 to 0 step -1
             hex_x = x_array2hex(x, cbyte(y))
@@ -279,11 +300,15 @@ sub compact_vertically() static
                 loop
                 'print "result", hex_x, hex_z
                 if hex_z < 254 then
+                    ' move x.z to x.y
                     map(x, y).color = map(x, z).color
                     map(x, y).isbrick = map(x, z).isbrick
-                    map(x, z).isbrick = false
-                    map(x, z).redraw = true
                     map(x, y).redraw = true
+                    ' clear x.z
+                    map(x, z).isbrick = false
+                    xs = x_array2screen(x, z)
+                    ys = y_array2screen(x, z)
+                    call fc_displayTile(tiles, xs, ys, 0, 6, 7, 6, false)
                     call refresh_adjacent(hex_x, hex_z)
                 end if
             end if
