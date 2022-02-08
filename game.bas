@@ -65,6 +65,34 @@ data as byte $00,$0d,$6c,$00,$03,$70,$00,$03
 data as byte $70,$00,$00,$c0,$00,$00,$c0,$81
 dim spritedata(64) as byte @amigacursorsprite
 
+function is_valid_hex as byte (hex_x as byte, hex_y as byte) static
+    ' negative x and y are 254 or 255, so will be caught below
+    'if hex_x >= 254 then return false
+    'if hex_y >= 254 then return false
+    if hex_x >= GAME_WIDTH then return false
+    if hex_y >= 2 * GAME_HEIGHT then return false
+    return true
+end function
+
+sub refresh_adjacent(hex_x as byte, hex_y as byte) static
+    dim x as byte
+    dim y as byte
+    dim hx as byte
+    dim hy as byte
+    
+    for i as byte = 0 to 5
+        hx = cbyte(hex_x + dx(i))
+        hy = cbyte(hex_y + dy(i))
+        if is_valid_hex(hx, hy) then
+            x = x_hex2array(hx, hy)
+            y = y_hex2array(hx, hy)
+            if map(x,y).isbrick then
+                'map(x,y).redraw = true
+            end if
+        end if
+    next
+end sub
+
 sub set_sprite(xx as byte, yy as byte) static
     for y as byte = 0 to GAME_HEIGHT - 1
         for x as byte = 0 to GAME_WIDTH - 1
@@ -72,11 +100,13 @@ sub set_sprite(xx as byte, yy as byte) static
                 ' delete old cursor
                 map(x,y).hascursor = false
                 map(x,y).redraw = true
+                call refresh_adjacent(x_array2hex(x, y), y_array2hex(x, y))
             end if
             if x = xx and y = yy then
                 ' add new cursor
                 map(x,y).hascursor = true
                 map(x,y).redraw = true
+                call refresh_adjacent(x_array2hex(x, y), y_array2hex(x, y))
             end if
         next
     next
@@ -127,6 +157,14 @@ sub init_hexagons() static
     next
 end sub
 
+sub redraw_all() static
+    for y as byte = 0 to GAME_HEIGHT - 1
+        for x as byte = 0 to GAME_WIDTH - 1
+            map(x,y).redraw = true
+        next
+    next
+end sub
+
 function draw_hexagons as byte () static
     dim numTiles as byte: numTiles = 0
     dim tileOffsetX as byte
@@ -158,26 +196,6 @@ function draw_hexagons as byte () static
     return numTiles
 end sub
 
-sub refresh_adjacent(hex_x as byte, hex_y as byte) static
-    return ' TODO
-    dim hx as int
-    dim hy as int
-    dim x as byte
-    dim y as byte
-    
-    for i as byte = 0 to 5
-        hx = hex_x + dx(i)
-        hy = hex_y + dy(i)
-        if hx > 0 and hy > 0 then
-            x = x_hex2array(cbyte(hx), cbyte(hy))
-            y = x_hex2array(cbyte(hx), cbyte(hy))
-            if x < GAME_WIDTH and y < GAME_HEIGHT then
-                if map(x,y).isbrick then map(x,y).redraw = true
-            end if
-        end if
-    next
-end sub
-
 sub remove_brick(hex_x as byte, hex_y as byte) static
     dim x as byte: x = x_hex2array(hex_x, hex_y)
     dim y as byte: y = y_hex2array(hex_x, hex_y)
@@ -185,15 +203,6 @@ sub remove_brick(hex_x as byte, hex_y as byte) static
     call refresh_adjacent(hex_x, hex_y)
     'print "break", hex_x;","; hex_y,x;",";y
 end sub
-
-function is_valid_hex as byte (hex_x as byte, hex_y as byte) static
-    ' negative x and y are 254 or 255, so will be caught below
-    'if hex_x >= 254 then return false
-    'if hex_y >= 254 then return false
-    if hex_x >= GAME_WIDTH then return false
-    if hex_y >= 2 * GAME_HEIGHT then return false
-    return true
-end function
 
 sub add_brick_to_queue(hex_x as byte, hex_y as byte, color as byte) static
     if is_valid_hex(hex_x, hex_y) = false then return
@@ -301,7 +310,7 @@ main:
     call fc_displayTile(tiles, 0, 44, 0, 12, 28, 6, false)
     call fc_displayTile(tiles, 28, 44, 0, 12, 28, 6, false)
     call fc_displayTile(tiles, 56, 44, 0, 12, 24, 6, false)
-    'print"":print"":print"":print"":print""
+    print"":print"":print"":print"":print""
 
     dim x as byte: x = 0
     dim y as byte: y = 0
@@ -309,16 +318,17 @@ loop:
     call set_sprite(x, y)
     call draw_hexagons()
     key = fc_getkey()
-    'print key
+    print key
     if key = 97 and x > 0 then x = x - 1
     if key = 100 and x < GAME_WIDTH - 1 then x = x + 1
     if key = 119 and y > 0 then y = y - 1
     if key = 115 and y < GAME_HEIGHT - 1 then y = y + 1
+    if key = 114 then call redraw_all()
     if key = 32 then 
         hex_x = x_array2hex(x, y)
         hex_y = y_array2hex(x, y)
         call break_bricks(hex_x, hex_y)
         call compact_vertically()
     end if 
-    'if key = 13 then call fc_fatal()
+    if key = 13 then call fc_fatal()
     goto loop
