@@ -65,11 +65,11 @@ data as byte $00,$0d,$6c,$00,$03,$70,$00,$03
 data as byte $70,$00,$00,$c0,$00,$00,$c0,$81
 dim spritedata(64) as byte @amigacursorsprite
 
-function x_array2screen as byte (x as byte, y as byte)
+function x_array2screen as byte (x as byte, y as byte) static
     return x * 5 
 end function
 
-function y_array2screen as byte (x as byte, y as byte)
+function y_array2screen as byte (x as byte, y as byte) static
     return 2 + 6 * y + 3 * (x mod 2)
 end function
 
@@ -101,11 +101,17 @@ sub refresh_adjacent(hex_x as byte, hex_y as byte) static
     next
 end sub
 
-sub set_sprite(xx as byte, yy as byte) static
+sub clear_tile(x as byte, y as byte) static
     ' screen coordinates
     dim xs as byte
     dim ys as byte
+    xs = x_array2screen(x, y)
+    ys = y_array2screen(x, y)
+    call fc_displayTile(tiles, xs, ys, 0, 6, 7, 6, false)
+    call refresh_adjacent(x_array2hex(x, y), y_array2hex(x, y))
+end sub
 
+sub set_sprite(xx as byte, yy as byte) static
     for y as byte = 0 to GAME_HEIGHT - 1
         for x as byte = 0 to GAME_WIDTH - 1
             if map(x,y).hascursor then
@@ -114,10 +120,7 @@ sub set_sprite(xx as byte, yy as byte) static
                 if map(x,y).isbrick then
                     map(x,y).redraw = true
                 else
-                    xs = x_array2screen(x, y)
-                    ys = y_array2screen(x, y)
-                    call fc_displayTile(tiles, xs, ys, 0, 6, 7, 6, false)
-                    call refresh_adjacent(x_array2hex(x, y), y_array2hex(x, y))
+                    call clear_tile(x, y)
                 end if
             end if
             if x = xx and y = yy then
@@ -209,13 +212,8 @@ end sub
 sub remove_brick(hex_x as byte, hex_y as byte) static
     dim x as byte: x = x_hex2array(hex_x, hex_y) ' array coordinates
     dim y as byte: y = y_hex2array(hex_x, hex_y)
-    dim xs as byte: xs = x_array2screen(x, y) ' screen coordinates
-    dim ys as byte: ys = y_array2screen(x, y) ' screen coordinates
-
     map(x, y).isbrick = false
-    call fc_displayTile(tiles, xs, ys, 0, 6, 7, 6, false)
-
-    call refresh_adjacent(hex_x, hex_y)
+    call clear_tile(x, y)
     'print "break", hex_x;","; hex_y,x;",";y
 end sub
 
@@ -306,10 +304,7 @@ sub compact_vertically() static
                     map(x, y).redraw = true
                     ' clear x.z
                     map(x, z).isbrick = false
-                    xs = x_array2screen(x, z)
-                    ys = y_array2screen(x, z)
-                    call fc_displayTile(tiles, xs, ys, 0, 6, 7, 6, false)
-                    call refresh_adjacent(hex_x, hex_z)
+                    call clear_tile(x, z)
                 end if
             end if
         next
