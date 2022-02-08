@@ -20,6 +20,7 @@ type Hexagon
 end type
 dim map(GAME_WIDTH, GAME_HEIGHT) as Hexagon
 
+dim logo as byte
 dim tiles as byte
 
 type HexCoordinate
@@ -322,18 +323,29 @@ main:
     randomize ti()
     call enable_40mhz()
     call fc_init(true, true, true, 0, 0)
+
     ' d054 controls the horizontal resolution and position
     poke $d054,peek($d054) or 16
     ' d076 should control vertical resolution and position
     poke $d076,255
+
+    ' intro screen
+
+    logo = fc_loadFCI("logo.fci") 
+    'call fc_loadFCIPalette(logo)
+    'call fc_displayTile(logo, 0, 0, 0, 0, 69, 17, false)
+
+    ' game screen
     tiles = fc_loadFCI("tiles.fci") 
+
+    call fc_clrscr()
     call fc_loadFCIPalette(tiles)
     call init_hexagons()
     'call show_sprite()
     call fc_displayTile(tiles, 0, 44, 0, 12, 28, 6, false)
     call fc_displayTile(tiles, 28, 44, 0, 12, 28, 6, false)
     call fc_displayTile(tiles, 56, 44, 0, 12, 24, 6, false)
-    print"":print"":print"":print"":print""
+    'print"":print"":print"":print"":print""
 
     dim x as byte: x = 0
     dim y as byte: y = 0
@@ -342,10 +354,10 @@ loop:
     call draw_hexagons()
     key = fc_getkey()
     'print key
-    if key = 97 and x > 0 then x = x - 1
-    if key = 100 and x < GAME_WIDTH - 1 then x = x + 1
-    if key = 119 and y > 0 then y = y - 1
-    if key = 115 and y < GAME_HEIGHT - 1 then y = y + 1
+    if key = 97 or key = 157 and x > 0 then x = x - 1
+    if key = 100 or key = 29 and x < GAME_WIDTH - 1 then x = x + 1
+    if key = 119 or key = 145 and y > 0 then y = y - 1
+    if key = 115 or key = 17 and y < GAME_HEIGHT - 1 then y = y + 1
     if key = 32 then 
         hex_x = x_array2hex(x, y)
         hex_y = y_array2hex(x, y)
