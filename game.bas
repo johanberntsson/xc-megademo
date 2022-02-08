@@ -4,6 +4,7 @@ include "mega65-lib/fullcolor.bas"
 
 const GAME_WIDTH = 15
 const GAME_HEIGHT = 7
+const GAME_SIZE = 105 ' GAME_WIDTH * GAME_HEIGHT
 
 const SPRPTRADR = $d06c
 const SPRPTRBNK = $d06e
@@ -14,10 +15,37 @@ type Hexagon
     color as byte
     isbrick as byte
     redraw as byte
+    hascursor as byte
 end type
+dim map(GAME_WIDTH, GAME_HEIGHT) as Hexagon
 
 dim tiles as byte
-dim map(GAME_WIDTH, GAME_HEIGHT) as Hexagon
+
+type HexCoordinate
+    hex_x as byte
+    hex_y as byte
+end type
+dim queue_len as byte
+dim queue(GAME_SIZE) as HexCoordinate
+
+' We will use doubled coordinates for the hexagons
+' https://www.redblobgames.com/grids/hexagons/
+
+function x_hex2array as byte (x as byte, y as byte) shared static
+    return x
+end function
+
+function y_hex2array as byte (x as byte, y as byte) shared static
+    return y / 2
+end function
+
+function x_array2hex as byte (x as byte, y as byte) shared static
+    return x
+end function
+
+function y_array2hex as byte (x as byte, y as byte) shared static
+    return y * 2 + (x mod 2)
+end function
 
 amigacursorsprite:
 data as byte $ff,$f0,$00,$ea,$ac,$00,$ea,$ac
@@ -30,15 +58,26 @@ data as byte $00,$0d,$6c,$00,$03,$70,$00,$03
 data as byte $70,$00,$00,$c0,$00,$00,$c0,$81
 dim spritedata(64) as byte @amigacursorsprite
 
-sub set_sprite(x as byte, y as byte) static
-    x = 120: y = 110
-    poke VIC2, x
-    poke VIC2 + 1, y
+sub set_sprite(xx as byte, yy as byte) static
+    for y as byte = 0 to GAME_HEIGHT - 1
+        for x as byte = 0 to GAME_WIDTH - 1
+            if map(x,y).hascursor then
+                ' delete old cursor
+                map(x,y).hascursor = false
+                map(x,y).redraw = true
+            end if
+            if x = xx and y = yy then
+                ' add new cursor
+                map(x,y).hascursor = true
+                map(x,y).redraw = true
+            end if
+        next
+    next
 end sub
 
 sub show_sprite() static
     dim spriteaddress as long: spriteaddress = $c000
-    dim spritepointers as long: spritepointers = 800
+    dim spritepointers as long: spritepointers = 820
     dim spritelocation as word
 
     for i as byte = 0 to 63
@@ -85,29 +124,105 @@ function draw_hexagons as byte () static
     dim numTiles as byte: numTiles = 0
     dim tileOffsetX as byte
     dim tileOffsetY as byte
+    dim xx as byte
+    dim yy as byte
 
-    for y as byte = 0 to GAME_HEIGHT - 1
+    for y as byte = 0 to (GAME_HEIGHT - 1)
         for x as byte = 0 to GAME_WIDTH - 1
+            if map(x,y).isbrick then numTiles = numTiles + 1
             if map(x,y).redraw then
                 map(x,y).redraw = false
                 if map(x,y).isbrick then
-                    numTiles = numTiles + 1
                     tileOffsetX = 7 * map(x,y).color
                     tileOffsetY = 0
                 else
-                    tileOffsetX = 7
+                    tileOffsetX = 0
                     tileOffsetY = 6
                 end if 
-                call fc_displayTile(tiles, 2 + x*5, 3 + y*6 + 3 * (x mod 2), tileOffsetX, tileOffsetY, 7, 6, true)
+                xx = x * 5 
+                yy = 2 + 6 * y + 3 * (x mod 2)
+                call fc_displayTile(tiles, xx, yy, tileOffsetX, tileOffsetY, 7, 6, true)
+                if map(x,y).hascursor then
+                    call fc_displayTile(tiles, xx, yy, 7, 6, 7, 6, true)
+                end if
             end if
         next
     next
     return numTiles
 end sub
 
+sub remove_brick(hex_x as int, hex_y as int) static
+    dim x as byte: x = x_hex2array(hex_x, hex_y)
+    dim y as byte: y = y_hex2array(hex_x, hex_y)
+    map(x, y).isbrick = false
+    'print "break", hex_x;","; hex_y,x;",";y
+end sub
+
+sub add_brick_to_queue(hex_x as byte, hex_y as byte, color as byte) static
+    if hex_x = 255 then return
+    if hex_y = 255 then return
+    if hex_x >= GAME_WIDTH then return
+    if hex_y >= 2 * GAME_HEIGHT then return
+
+    dim x as byte: x = x_hex2array(hex_x, hex_y)
+    dim y as byte: y = y_hex2array(hex_x, hex_y)
+    'print "add?", hex_x;",";hex_y,x;",";y,map(x, y).redraw;",";map(x, y).isbrick;",";map(x, y).color
+    if map(x, y).redraw = false and map(x, y).isbrick = true and map(x, y).color = color then
+        'print "add", hex_x, hex_y
+        queue(queue_len).hex_x = hex_x
+        queue(queue_len).hex_y = hex_y
+        queue_len = queue_len + 1
+        ' to mark that this has been added to the queue
+        map(x, y).redraw = true 
+    end if
+end sub
+
+function break_bricks as byte (hex_x as byte, hex_y as byte) static
+    dim color as byte
+    dim first as byte
+    dim smashed_bricks as byte
+    dim x as byte: x = x_hex2array(hex_x, hex_y)
+    dim y as byte: y = y_hex2array(hex_x, hex_y)
+
+    if map(x, y).isbrick = false then return 0
+    
+    ' first entry
+    first = 1
+    queue_len = 1
+    queue(0).hex_x = hex_x
+    queue(0).hex_y = hex_y
+    smashed_bricks = 0
+    color = map(x, y).color
+
+    do while queue_len > 0
+        queue_len = queue_len - 1
+        hex_x = queue(queue_len).hex_x
+        hex_y = queue(queue_len).hex_y
+        'print "check", hex_x;",";hex_y,x;",";y,color
+        call remove_brick(hex_x, hex_y)
+        smashed_bricks = smashed_bricks + 1
+        ' adjacent hexagons
+        call add_brick_to_queue(hex_x - 1, hex_y - 1, color)
+        call add_brick_to_queue(hex_x - 1, hex_y + 1, color)
+        call add_brick_to_queue(hex_x    , hex_y + 2, color)
+        call add_brick_to_queue(hex_x + 1, hex_y + 1, color)
+        call add_brick_to_queue(hex_x + 1, hex_y - 1, color)
+        call add_brick_to_queue(hex_x    , hex_y - 2, color)
+        if first = 1 and queue_len = 0 then
+            ' not allowed to remove only one brick
+            ' put it back
+            ' map(x, y).isbrick = true
+            ' smashed_bricks = 0
+        else
+            first = 0
+        end if
+    loop 
+    return smashed_bricks
+end sub
+
 main:
-    dim x as byte
-    dim y as byte
+    dim hex_x as byte
+    dim hex_y as byte
     dim key as byte
     randomize ti()
     call enable_40mhz()
@@ -119,25 +234,27 @@ main:
     tiles = fc_loadFCI("tiles.fci") 
     call fc_loadFCIPalette(tiles)
     call init_hexagons()
-    call show_sprite()
-    call fc_displayTile(tiles, 0, 44, 0, 6, 28, 6, false)
-    call fc_displayTile(tiles, 28, 44, 0, 6, 28, 6, false)
-    call fc_displayTile(tiles, 56, 44, 0, 6, 24, 6, false)
-    call draw_hexagons()
-    call set_sprite(0, 3)
-    x = 0
-    y = 0
+    'call show_sprite()
+    call fc_displayTile(tiles, 0, 44, 0, 12, 28, 6, false)
+    call fc_displayTile(tiles, 28, 44, 0, 12, 28, 6, false)
+    call fc_displayTile(tiles, 56, 44, 0, 12, 24, 6, false)
+    'print"":print"":print"":print"":print""
+
+    dim x as byte: x = 0
+    dim y as byte: y = 0
 loop:
-    goto loop
-    print key, x, y
     call set_sprite(x, y)
+    call draw_hexagons()
     key = fc_getkey()
-    if key = 97 then x = x - 1
-    if key = 100 then x = x + 1
-    if key = 119 then y = y - 1
-    if key = 115 then y = y + 1
-    if key = 32 then call fc_fatal()
-    if x < 0 then x = 0
-    if y < 0 then y = 0
-    if x >= GAME_WIDTH then x = GAME_WIDTH -1
-    if y >= GAME_HEIGHT then y = GAME_HEIGHT -1
+    'print key
+    if key = 97 and x > 0 then x = x - 1
+    if key = 100 and x < GAME_WIDTH - 1 then x = x + 1
+    if key = 119 and y > 0 then y = y - 1
+    if key = 115 and y < GAME_HEIGHT - 1 then y = y + 1
+    if key = 32 then 
+        hex_x = x_array2hex(x, y)
+        hex_y = y_array2hex(x, y)
+        call break_bricks(hex_x, hex_y)
+    end if 
+    'if key = 13 then call fc_fatal()
+    goto loop

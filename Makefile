@@ -25,7 +25,7 @@ game: game.d81
 
 # convert png to fci (MEGA65 full color mode graphics)
 res/%.fci: img-src/%.png
-	python3 tools/png2fci.py -v0rc $< $@
+	python3 tools/png2fci.py -v0r $< $@
 
 bin/%.prg: %.bas $(LIBSOURCE)
 	mkdir -p bin res

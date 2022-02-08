@@ -117,8 +117,8 @@ dim uniqueTileMode as byte
 const MAX_WINDOWS =  8
 const MAX_FCI = 16
 
-dim windows(MAX_WINDOWS) as TextWindow @$700
-dim fci(MAX_FCI) as fciInfo @600
+dim windows(MAX_WINDOWS) as TextWindow
+dim fci(MAX_FCI) as fciInfo
 
 dim autocr as byte
 dim csrflag as byte
@@ -259,6 +259,41 @@ function fc_nextInfoBlock as byte () static
     info = fciCount
     fciCount = fciCount + 1
     return fciCount
+end function
+
+function fc_loadFCIOld as byte (info as byte, filename as String * 20) shared static
+    dim options as byte
+    dim paletteMemSize as word
+    dim bitmapSourceAddress as long
+    dim base as word
+
+    ' TODO: this should be rewritten as
+    ' open 2,8,2,"tiles"
+    ' read #2, header
+    ' read #2, ...
+    ' close 2
+    ' but currently there is a bug stopping it in xc-basic 3
+    base = $6000
+
+
+    load "tiles.fci", 8, base+2 ' compensate for two missing bytes
+    fci(info).rows = peek(base + 5)
+    fci(info).columns = peek(base + 6)
+    options = peek(base + 7)
+    fci(info).paletteSize  = peek(base + 8)
+
+    fci(info).reservedSysPalette = (options and 2)
+    fci(info).size  = cword(64) * fci(info).rows * fci(info).columns
+    paletteMemSize = (cword(1) + fci(info).paletteSize) * 3
+    bitmapSourceAddress = base + 9 + paletteMemSize + 3 ' 3 is for IMG
+
+    fci(info).paletteAdr = fc_allocPalMem(paletteMemSize)
+    call dma_copy(clong(base + 9), fci(info).paletteAdr, paletteMemSize)
+
+    fci(info).baseAdr = fc_allocGraphMem(fci(info).size)
+
+    call dma_copy(0, bitmapSourceAddress, gConfig.bitmapbase_high, fci(info).baseAdr, fci(info).size)
+    return info
 end function
 
 function fc_loadFCI as byte (info as byte, filename as String * 20) shared static
