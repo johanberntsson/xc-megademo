@@ -11,10 +11,16 @@ const SPRPTRBNK = $d06e
 const JOYSTICK1 = $dc00
 const JOYSTICK2 = $dc01
 
+const STATE_DONE = 0
+const STATE_REPAINT = 1
+const STATE_HIGHLIGHT = 2
+const STATE_EXPLOSION = 4
+
 type Hexagon
     color as byte
     isbrick as byte
-    redraw as byte
+    state as byte
+    state_cnt as byte
     hascursor as byte
     isqueuing as byte
 end type
@@ -98,7 +104,7 @@ sub refresh_adjacent(hex_x as byte, hex_y as byte) static
             x = x_hex2array(hx, hy)
             y = y_hex2array(hx, hy)
             if map(x,y).isbrick then
-                map(x,y).redraw = true
+                map(x,y).state = STATE_REPAINT
                 'print "- ",hx;",";hy
             end if
         end if
@@ -122,7 +128,7 @@ sub set_sprite(xx as byte, yy as byte) static
                 ' delete old cursor
                 map(x,y).hascursor = false
                 if map(x,y).isbrick then
-                    map(x,y).redraw = true
+                    map(x,y).state = STATE_REPAINT
                 else
                     call clear_tile(x, y)
                     call refresh_adjacent(x_array2hex(x, y), y_array2hex(x, y))
@@ -131,7 +137,7 @@ sub set_sprite(xx as byte, yy as byte) static
             if x = xx and y = yy then
                 ' add new cursor
                 map(x,y).hascursor = true
-                map(x,y).redraw = true
+                map(x,y).state = STATE_REPAINT
             end if
         next
     next
@@ -176,7 +182,7 @@ sub init_hexagons() static
     for y as byte = 0 to GAME_HEIGHT - 1
         for x as byte = 0 to GAME_WIDTH - 1
             map(x,y).isbrick = true
-            map(x,y).redraw = true
+            map(x,y).state = STATE_REPAINT
             map(x,y).color = rndb() mod 4
         next
     next
@@ -190,8 +196,8 @@ function draw_hexagons as byte () static
     for y as byte = 0 to (GAME_HEIGHT - 1)
         for x as byte = 0 to GAME_WIDTH - 1
             if map(x,y).isbrick then numTiles = numTiles + 1
-            if map(x,y).redraw then
-                map(x,y).redraw = false
+            if map(x,y).state <> STATE_DONE then
+                map(x,y).state = STATE_DONE
                 xx = x_array2screen(x, y)
                 yy = y_array2screen(x, y)
                 if map(x,y).isbrick then
@@ -220,7 +226,7 @@ sub add_brick_to_queue(hex_x as byte, hex_y as byte, color as byte) static
 
     dim x as byte: x = x_hex2array(hex_x, hex_y)
     dim y as byte: y = y_hex2array(hex_x, hex_y)
-    'print "add?", hex_x;",";hex_y,x;",";y,map(x, y).redraw;",";map(x, y).isbrick;",";map(x, y).color
+    'print "add?", hex_x;",";hex_y,x;",";y,map(x, y).state;",";map(x, y).isbrick;",";map(x, y).color
     if map(x, y).isqueuing = false and map(x, y).isbrick = true and map(x, y).color = color then
         'print "add", hex_x, hex_y
         queue(queue_len).hex_x = hex_x
@@ -304,7 +310,7 @@ sub compact_vertically() static
                     ' move x.z to x.y
                     map(x, y).color = map(x, z).color
                     map(x, y).isbrick = map(x, z).isbrick
-                    map(x, y).redraw = true
+                    map(x, y).state = STATE_REPAINT
                     ' clear x.z
                     map(x, z).isbrick = false
                     call clear_tile(x, z)
@@ -321,7 +327,6 @@ main:
     dim hex_x as byte
     dim hex_y as byte
     dim key as byte
-    randomize ti()
     call enable_40mhz()
     call fc_init(true, true, true, 0, 0)
 
@@ -353,10 +358,12 @@ main:
     call fc_center(0, 40, 80, "Press any key")
     call fc_getkey()
 
+    randomize ti()
+    call init_hexagons()
+
+    'call show_sprite()
     call fc_clrscr()
     call fc_loadFCIPalette(tiles)
-    call init_hexagons()
-    'call show_sprite()
     call fc_displayTile(tiles, 0, 44, 0, 12, 28, 6, false)
     call fc_displayTile(tiles, 28, 44, 0, 12, 28, 6, false)
     call fc_displayTile(tiles, 56, 44, 0, 12, 24, 6, false)

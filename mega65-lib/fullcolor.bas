@@ -363,7 +363,7 @@ function fc_kbhit as byte () static
     return peek($d610)
 end function
 
-function fc_cgetc as byte () static
+function fc_cgetc as byte () shared static
     dim k as byte
     do
         k = peek($d610)
@@ -372,7 +372,7 @@ function fc_cgetc as byte () static
     return k
 end function
 
-sub fc_emptyBuffer() static
+sub fc_emptyBuffer() shared static
     dim dummy as byte
     do while fc_kbhit()
         dummy = fc_cgetc()
