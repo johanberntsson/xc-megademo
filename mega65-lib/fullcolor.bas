@@ -261,41 +261,6 @@ function fc_nextInfoBlock as byte () static
     return fciCount
 end function
 
-function fc_loadFCIOld as byte (info as byte, filename as String * 20) shared static
-    dim options as byte
-    dim paletteMemSize as word
-    dim bitmapSourceAddress as long
-    dim base as word
-
-    ' TODO: this should be rewritten as
-    ' open 2,8,2,"tiles"
-    ' read #2, header
-    ' read #2, ...
-    ' close 2
-    ' but currently there is a bug stopping it in xc-basic 3
-    base = $6000
-
-
-    load "tiles.fci", 8, base+2 ' compensate for two missing bytes
-    fci(info).rows = peek(base + 5)
-    fci(info).columns = peek(base + 6)
-    options = peek(base + 7)
-    fci(info).paletteSize  = peek(base + 8)
-
-    fci(info).reservedSysPalette = (options and 2)
-    fci(info).size  = cword(64) * fci(info).rows * fci(info).columns
-    paletteMemSize = (cword(1) + fci(info).paletteSize) * 3
-    bitmapSourceAddress = base + 9 + paletteMemSize + 3 ' 3 is for IMG
-
-    fci(info).paletteAdr = fc_allocPalMem(paletteMemSize)
-    call dma_copy(clong(base + 9), fci(info).paletteAdr, paletteMemSize)
-
-    fci(info).baseAdr = fc_allocGraphMem(fci(info).size)
-
-    call dma_copy(0, bitmapSourceAddress, gConfig.bitmapbase_high, fci(info).baseAdr, fci(info).size)
-    return info
-end function
-
 function fc_loadFCI as byte (info as byte, filename as String * 20) shared static
     dim b as byte
     dim n as byte
@@ -548,6 +513,67 @@ sub fc_gotoxy(x as byte, y as byte) shared static
     windows(gCurrentWindow).yc = y
 end sub
 
+sub fc_clearUniqueTiles() static
+    call dma_fill($18000, 0, cword($7800)) ' $18000 - $1f800
+    ' skip over DOS ($1f800 - $24000)
+    call dma_fill($24000, 0, cword($8000)) ' $24000 - $2c000
+    ' skip over C64 kernal ($2c000 - $30000)
+    call dma_fill($30000, 0, $8000)
+    call dma_fill($38000, 0, $8000)
+    call dma_fill($40000, 0, $8000)
+    call dma_fill($48000, 0, $8000)
+    call dma_fill($50000, 0, $8000)
+    call dma_fill($58000, 0, $8000)
+end sub
+
+sub fc_setUniqueTileMode(x0 as byte, y0 as byte, width as byte, height as byte) shared static
+    dim b as byte
+    dim a as long: a = $30000
+    if uniqueTileMode = false then
+        ' Bank out the C64/C65 ROM, freeing $18000 - $3xxxx.
+        ' But, assuming that the program is started from C64
+        ' mode, we still need the kernal and DOS, so avoid
+        ' writing on $1f800 - $24000 and $2c000 - $30000
+        b =  dma_peek(a)
+        asm
+            ; Since dasm doesn't allow 4510 opcodes I have
+            ; written the assembler in acme, made a hexdump and
+            ; stored it here
+            ;byte $a9, $00       ; lda #$00
+            ;byte $aa            ; tax
+            ;byte $a8            ; tay
+            ;byte $4b            ; taz
+            ;byte $5c            ; map
+            ;byte $a9, $36       ; lda #$36 (no basic)
+            ;byte $85, $01       ; sta $01
+            ;byte $a9, $47       ; lda #$47
+            ;byte $8d, $2f, $d0  ; sta $d02f
+            ;byte $a9, $53       ; lda #$53
+            ;byte $8d, $2f, $d0  ; sta $d02f
+            ;byte $ea            ; eom
+            ; call MEGA65 hypervisor to remove write protection
+            byte $a9, $70       ; lda #$70
+            byte $8d, $40, $d6  ; sta $d640
+            byte $ea            ; nop
+        end asm
+        ' check if we can write to the new RAM (banking worked)
+        call dma_poke(a, b + 1)
+        if dma_peek(a) <> b + 1 then call fc_fatal("Banking failed")
+        call fc_clearUniqueTiles()
+
+        uniqueTileMode = true
+        uniqueTile_X0 = x0
+        uniqueTile_Y0 = y0
+        uniqueTile_Width = width
+        uniqueTile_Height = height
+
+        if fciCount > 1 then call fc_fatal("Unique will destroy bitmaps")
+        gConfig.bitmapbase = clong(0)
+        gConfig.bitmapbase_high = $80
+        call fc_freeGraphAreas()
+
+    end if 
+end sub
 
 function fc_input as String * 80 () shared static
     dim ct as byte
@@ -646,27 +672,33 @@ sub fc_displayTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byt
     dim charIndex as word
     dim toTileAddr as long
     dim fromTileAddr as long
+    dim rawToTileAddr as long
 
     for y as byte = 0 to t_h -1
         screenAddr = gConfig.screenbase + 2 *(x0 + (y0 + y) * cword(gScreenColumns))
         if uniqueTileMode then
             fromTileAddr = fci(info).baseAdr + 64*(t_x + ((y + t_y) * clong(fci(info).columns)))
             ' copy bitmap asset to location in bitmap_mirror - $5xxxx
-            toTileAddr = gConfig.bitmap_mirror + 64 * (x0 + (clong(gScreenColumns) * (y + y0)))
-            ' skip over DOS
-            if toTileAddr >= $1f800 then toTileAddr = toTileAddr + $4800
-            ' skip over C64 kernal
-            if toTileAddr >= $2c000 then toTileAddr = toTileAddr + $4000
-            charIndex = cword(toTileAddr / 64)
-            if mergeTiles then
-                call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64 * cword(t_w), 0)
-            else
-                call dma_copy(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64 * cword(t_w))
-            end if
+            rawToTileAddr = gConfig.bitmap_mirror + 64 * (x0 + (clong(gScreenColumns) * (y + y0)))
         else
             charIndex = cword(fci(info).baseAdr / 64) + t_x + (y * fci(info).columns)
         end if
         for x as byte = t_x to t_x + t_w - 1
+            if uniqueTileMode then
+                toTileAddr = rawToTileAddr
+                ' skip over DOS
+                if toTileAddr >= $1f800 then toTileAddr = toTileAddr + $4800
+                ' skip over C64 kernal
+                if toTileAddr >= $2c000 then toTileAddr = toTileAddr + $4000
+                if mergeTiles then
+                    call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64, 0)
+                else
+                    call dma_copy(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64)
+                end if
+                charIndex = cword(toTileAddr / 64)
+                fromTileAddr = fromTileAddr + 64
+                rawToTileAddr = rawToTileAddr + 64
+            end if
             ' set highbyte first to avoid blinking
             ' while setting up the screeen
             call dma_poke(screenAddr + 1, BYTE1(charIndex))
@@ -724,6 +756,7 @@ end sub
 sub fc_clrscr() shared static
     call fc_block(0, 0, windows(gCurrentWindow).width, windows(gCurrentWindow).height, 32, windows(gCurrentWindow).textcolor)
     call fc_gotoxy(0, 0)
+    if uniqueTileMode then call fc_clearUniqueTiles()
 end sub
 
 sub fc_textcolor(color as byte) shared static
@@ -897,68 +930,6 @@ sub fc_loadReservedBitmap(name as String * 80) shared static
     if firstFreeGraphMem <> gConfig.bitmapbase then call fc_fatal("Reserved memory must be allocated first")
     call fc_loadFCI(0, name)
     call fc_resetPalette()
-end sub
-
-sub fc_clearUniqueTiles() static
-    ' skip over DOS
-    call dma_fill($18000, 0, cword($7800))
-    ' skip over C64 kernal
-    call dma_fill($24000, 0, cword($8000))
-    call dma_fill($30000, 0, $8000)
-    call dma_fill($38000, 0, $8000)
-    call dma_fill($40000, 0, $8000)
-    call dma_fill($48000, 0, $8000)
-    call dma_fill($50000, 0, $8000)
-    call dma_fill($58000, 0, $8000)
-end sub
-
-sub fc_setUniqueTileMode(x0 as byte, y0 as byte, width as byte, height as byte) shared static
-    dim b as byte
-    dim a as long: a = $30000
-    if uniqueTileMode = false then
-        ' Bank out the C64/C65 ROM, freeing $18000 - $3xxxx.
-        ' But, assuming that the program is started from C64
-        ' mode, we still need the kernal and DOS, so avoid
-        ' writing on $1f800 - $24000 and $2c000 - $30000
-        b =  dma_peek(a)
-        asm
-            ; Since dasm doesn't allow 4510 opcodes I have
-            ; written the assembler in acme, made a hexdump and
-            ; stored it here
-            ;byte $a9, $00       ; lda #$00
-            ;byte $aa            ; tax
-            ;byte $a8            ; tay
-            ;byte $4b            ; taz
-            ;byte $5c            ; map
-            ;byte $a9, $36       ; lda #$36 (no basic)
-            ;byte $85, $01       ; sta $01
-            ;byte $a9, $47       ; lda #$47
-            ;byte $8d, $2f, $d0  ; sta $d02f
-            ;byte $a9, $53       ; lda #$53
-            ;byte $8d, $2f, $d0  ; sta $d02f
-            ;byte $ea            ; eom
-            ; call MEGA65 hypervisor to remove write protection
-            byte $a9, $70       ; lda #$70
-            byte $8d, $40, $d6  ; sta $d640
-            byte $ea            ; nop
-        end asm
-        ' check if we can write to the new RAM (banking worked)
-        call dma_poke(a, b + 1)
-        if dma_peek(a) <> b + 1 then call fc_fatal("Banking failed")
-        call fc_clearUniqueTiles()
-
-        uniqueTileMode = true
-        uniqueTile_X0 = x0
-        uniqueTile_Y0 = y0
-        uniqueTile_Width = width
-        uniqueTile_Height = height
-
-        if fciCount > 1 then call fc_fatal("Unique will destroy bitmaps")
-        gConfig.bitmapbase = clong(0)
-        gConfig.bitmapbase_high = $80
-        call fc_freeGraphAreas()
-
-    end if 
 end sub
 
 sub fc_real_init(h640 as byte, v400 as byte, unique as byte, rows as byte, columns as byte) static
