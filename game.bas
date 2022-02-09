@@ -323,19 +323,8 @@ sub compact_vertically() static
     'call fc_fatal()
 end sub
 
-main:
-    dim hex_x as byte
-    dim hex_y as byte
+sub show_intro() static
     dim key as byte
-    call enable_40mhz()
-    call fc_init(true, true, true, 0, 0)
-
-    ' d054 controls the horizontal resolution and position
-    poke $d054,peek($d054) or 16
-    ' d076 should control vertical resolution and position
-    poke $d076,255
-
-    ' intro screen
     call fc_textcolor(RED)
     call fc_center(0, 20, 80, "Breaking")
     call fc_textcolor(GREEN)
@@ -351,24 +340,24 @@ main:
     call fc_loadFCIPalette(logo)
     call fc_displayTile(logo, 0, 0, 0, 0, 56, 14, false)
 
-    ' game screen
     tiles = fc_loadFCI("tiles.fci") 
-
-    ' get started
     call fc_center(0, 40, 80, "Press any key")
-    call fc_getkey()
+    key = fc_getkey()
+end sub
 
-    randomize ti()
-    call init_hexagons()
-
+sub show_game() static
     'call show_sprite()
     call fc_clrscr()
     call fc_loadFCIPalette(tiles)
     call fc_displayTile(tiles, 0, 44, 0, 12, 28, 6, false)
     call fc_displayTile(tiles, 28, 44, 0, 12, 28, 6, false)
     call fc_displayTile(tiles, 56, 44, 0, 12, 24, 6, false)
-    'print"":print"":print"":print"":print""
+end sub
 
+sub play_game() static
+    dim key as byte
+    dim hex_x as byte
+    dim hex_y as byte
     dim x as byte: x = 0
     dim y as byte: y = 0
 loop:
@@ -388,3 +377,22 @@ loop:
     end if 
     'if key = 13 then call fc_fatal()
     goto loop
+end sub
+
+main:
+    call enable_40mhz()
+    call fc_init(true, true, true, 0, 0)
+
+    ' d054 controls the horizontal resolution and position
+    poke $d054,peek($d054) or 16
+    ' d076 should control vertical resolution and position
+    poke $d076,255
+
+    call show_intro()
+
+    randomize ti()
+    call init_hexagons()
+
+    call show_game()
+
+    call play_game()
