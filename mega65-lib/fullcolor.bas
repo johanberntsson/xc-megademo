@@ -388,6 +388,8 @@ sub fc_plotPetsciiChar(x as byte, y as byte, c as byte, color as byte, attribute
     dim offset as word
     offset = 2 * (x + y * cword(gScreenColumns))
     call dma_poke(gConfig.screenbase + offset, c)
+    call dma_poke(gConfig.screenbase + offset + 1, 0)
+    call dma_poke($ff, gConfig.colorbase  + offset, 0)
     call dma_poke($ff, gConfig.colorbase  + offset + 1, color or attribute)
 end sub
 
@@ -514,9 +516,9 @@ sub fc_gotoxy(x as byte, y as byte) shared static
 end sub
 
 sub fc_clearUniqueTiles() static
-    call dma_fill($18000, 0, cword($7800)) ' $18000 - $1f800
+    call dma_fill($18000, 0, cword($7800)) ' $18000 - $1f800 = 30 KB
     ' skip over DOS ($1f800 - $24000)
-    call dma_fill($24000, 0, cword($8000)) ' $24000 - $2c000
+    call dma_fill($24000, 0, cword($8000)) ' $24000 - $2c000 = 32 KB
     ' skip over C64 kernal ($2c000 - $30000)
     call dma_fill($30000, 0, $8000)
     call dma_fill($38000, 0, $8000)
@@ -524,6 +526,7 @@ sub fc_clearUniqueTiles() static
     call dma_fill($48000, 0, $8000)
     call dma_fill($50000, 0, $8000)
     call dma_fill($58000, 0, $8000)
+    ' total memory: 30 + 7*32 = 254 KB (need 250 for 640x400x64 screen)
 end sub
 
 sub fc_setUniqueTileMode(x0 as byte, y0 as byte, width as byte, height as byte) shared static
@@ -667,6 +670,27 @@ function fc_displayFCIFile as byte (filename as String * 20, x0 as byte, y0 as b
     return info
 end function
 
+sub fc_clearTile(x0 as byte, y0 as byte, t_w as byte, t_h as byte) shared static
+    dim toTileAddr as long
+    dim rawToTileAddr as long
+
+    if uniqueTileMode = false then call fc_fatal("clearTile only for unique mode")
+
+    for y as byte = 0 to t_h -1
+        ' copy bitmap asset to location in bitmap_mirror - $5xxxx
+        rawToTileAddr = gConfig.bitmap_mirror + 64 * (x0 + (clong(gScreenColumns) * (y + y0)))
+        for x as byte = 0 to t_w - 1
+            toTileAddr = rawToTileAddr
+            ' skip over DOS if needed
+            if toTileAddr + 64 > $1f800 then toTileAddr = toTileAddr + $4800
+            ' skip over C64 kernal if needed
+            if toTileAddr + 64 > $2c000 then toTileAddr = toTileAddr + $4000
+            call dma_fill(toTileAddr, 0, cword(64))
+            rawToTileAddr = rawToTileAddr + 64
+        next
+    next
+end sub
+
 sub fc_displayTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byte, t_w as byte, t_h as byte, mergeTiles as byte) shared static
     dim screenAddr as long
     dim charIndex as word
@@ -686,10 +710,10 @@ sub fc_displayTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byt
         for x as byte = t_x to t_x + t_w - 1
             if uniqueTileMode then
                 toTileAddr = rawToTileAddr
-                ' skip over DOS
-                if toTileAddr >= $1f800 then toTileAddr = toTileAddr + $4800
-                ' skip over C64 kernal
-                if toTileAddr >= $2c000 then toTileAddr = toTileAddr + $4000
+                ' skip over DOS if needed
+                if toTileAddr + 64 > $1f800 then toTileAddr = toTileAddr + $4800
+                ' skip over C64 kernal if needed
+                if toTileAddr + 64 > $2c000 then toTileAddr = toTileAddr + $4000
                 if mergeTiles then
                     call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64, 0)
                 else

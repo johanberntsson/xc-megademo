@@ -207,6 +207,10 @@ rows = list(pngData[2])
 imageData, numRows, numColumns = pngRowsToM65Rows(rows)
 m65data = bytearray()
 
+if len(imageData) > 65535:
+    print("error: image is too big (", len(imageData), " > 65535 bytes)")
+    exit(2)
+
 vprint("building outfile")
 m65data.extend(map(ord, 'fciP'))  # 0-3 : identifier bytes for format
 m65data.append(0x01)  # 4 : version

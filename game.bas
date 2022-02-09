@@ -111,7 +111,8 @@ sub clear_tile(x as byte, y as byte) static
     dim ys as byte
     xs = x_array2screen(x, y)
     ys = y_array2screen(x, y)
-    call fc_displayTile(tiles, xs, ys, 0, 6, 7, 6, false)
+    call fc_clearTile(xs, ys, 7, 6)
+    'call fc_displayTile(tiles, xs, ys, 0, 6, 7, 6, false, true)
 end sub
 
 sub set_sprite(xx as byte, yy as byte) static
@@ -330,13 +331,27 @@ main:
     poke $d076,255
 
     ' intro screen
+    call fc_textcolor(RED)
+    call fc_center(0, 20, 80, "Breaking")
+    call fc_textcolor(GREEN)
+    call fc_center(0, 22, 80, "HEXAGONS")
+    call fc_textcolor(WHITE)
+    call fc_center(0, 30, 80, "By Johan Berntsson")
+    call fc_textcolor(GREY)
+    call fc_center(0, 32, 80, "version 1 - 9 Feb 2022")
+    call fc_textcolor(WHITE)
+    call fc_center(0, 40, 80, "Loading...")
 
     logo = fc_loadFCI("logo.fci") 
-    'call fc_loadFCIPalette(logo)
-    'call fc_displayTile(logo, 0, 0, 0, 0, 69, 17, false)
+    call fc_loadFCIPalette(logo)
+    call fc_displayTile(logo, 0, 0, 0, 0, 56, 14, false)
 
     ' game screen
     tiles = fc_loadFCI("tiles.fci") 
+
+    ' get started
+    call fc_center(0, 40, 80, "Press any key")
+    call fc_getkey()
 
     call fc_clrscr()
     call fc_loadFCIPalette(tiles)
