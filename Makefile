@@ -14,6 +14,9 @@ FCIS := $(subst img-src, res, $(PNGS:%.png=%.fci))
 # phony target is simply a target that is always out-of-date
 .PHONY: demo, game, all, clean
 
+# make so that no intermediate files are ever removed
+.SECONDARY:
+
 all: game
 
 demo: demo.d81

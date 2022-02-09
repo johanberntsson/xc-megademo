@@ -526,7 +526,7 @@ sub fc_clearUniqueTiles() static
     call dma_fill($48000, 0, $8000)
     call dma_fill($50000, 0, $8000)
     call dma_fill($58000, 0, $8000)
-    ' total memory: 30 + 7*32 = 254 KB (need 250 for 640x400x64 screen)
+    ' total: 30 + 7*32 = 254 KB (need 250 for 640x400x64 screen)
 end sub
 
 sub fc_setUniqueTileMode(x0 as byte, y0 as byte, width as byte, height as byte) shared static
