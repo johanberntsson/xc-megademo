@@ -185,8 +185,8 @@ sub clear_tile(x as byte, y as byte) static
     dim ys as byte
     xs = x_array2screen(x, y)
     ys = y_array2screen(x, y)
-    call fc_clearTile(xs, ys, 7, 6)
-    'call fc_displayTile(tiles, xs, ys, 0, 6, 7, 6, false, true)
+    'call fc_clearTile(xs, ys, 7, 6)
+    call fc_displayTile(tiles, xs, ys, 0, 6, 7, 6, false)
 end sub
 
 sub set_sprite(xx as byte, yy as byte) static

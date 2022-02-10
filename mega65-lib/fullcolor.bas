@@ -9,6 +9,7 @@
 ' Bitmaps:
 ' - fc_loadFCI
 ' - fc_loadFCIPalette
+' - fc_clearTile
 ' - fc_displayFCI
 ' - fc_displayFCIFile
 ' - fc_displayTile
@@ -677,7 +678,6 @@ sub fc_clearTile(x0 as byte, y0 as byte, t_w as byte, t_h as byte) shared static
     if uniqueTileMode = false then call fc_fatal("clearTile only for unique mode")
 
     for y as byte = 0 to t_h -1
-        ' copy bitmap asset to location in bitmap_mirror - $5xxxx
         rawToTileAddr = gConfig.bitmap_mirror + 64 * (x0 + (clong(gScreenColumns) * (y + y0)))
         for x as byte = 0 to t_w - 1
             toTileAddr = rawToTileAddr

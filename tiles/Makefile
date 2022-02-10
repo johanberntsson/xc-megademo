@@ -6,4 +6,4 @@ all:
 	#convert -append row1.png brickwall.png allrows.png
 	convert allrows.png PNG8:allrows-indexed.png
 	#convert allrows-indexed.png -crop 1x3@ tiles%d.png
-	mv allrows-indexed.png ../img-src/tiles.png
+	mv allrows-indexed.png ../assets-img/tiles.png
