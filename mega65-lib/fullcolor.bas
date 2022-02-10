@@ -542,18 +542,18 @@ sub fc_setUniqueTileMode(x0 as byte, y0 as byte, width as byte, height as byte) 
             ; Since dasm doesn't allow 4510 opcodes I have
             ; written the assembler in acme, made a hexdump and
             ; stored it here
-            ;byte $a9, $00       ; lda #$00
-            ;byte $aa            ; tax
-            ;byte $a8            ; tay
-            ;byte $4b            ; taz
-            ;byte $5c            ; map
-            ;byte $a9, $36       ; lda #$36 (no basic)
-            ;byte $85, $01       ; sta $01
-            ;byte $a9, $47       ; lda #$47
-            ;byte $8d, $2f, $d0  ; sta $d02f
-            ;byte $a9, $53       ; lda #$53
-            ;byte $8d, $2f, $d0  ; sta $d02f
-            ;byte $ea            ; eom
+            byte $a9, $00       ; lda #$00
+            byte $aa            ; tax
+            byte $a8            ; tay
+            byte $4b            ; taz
+            byte $5c            ; map
+            byte $a9, $36       ; lda #$36 (no basic)
+            byte $85, $01       ; sta $01
+            byte $a9, $47       ; lda #$47
+            byte $8d, $2f, $d0  ; sta $d02f
+            byte $a9, $53       ; lda #$53
+            byte $8d, $2f, $d0  ; sta $d02f
+            byte $ea            ; eom
             ; call MEGA65 hypervisor to remove write protection
             byte $a9, $70       ; lda #$70
             byte $8d, $40, $d6  ; sta $d640

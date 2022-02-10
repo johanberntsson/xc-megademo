@@ -110,7 +110,8 @@ irqcallback:
         sta $fd
 done:
         ; play music
-        jsr $c0fa
+        ;jsr $a04e
+        ;jsr $a0fa
 
         ; end irq
         lda #$ff
@@ -118,7 +119,8 @@ done:
         jmp $ea31
 startirq:
         ; init music
-        jsr $c046
+        ;jsr $a000
+        ;jsr $a046
 
         ; Suspend interrupts during init
         sei
@@ -402,16 +404,22 @@ sub show_intro() static
     call fc_textcolor(WHITE)
     call fc_center(0, 40, 80, "Loading...")
 
+    'load "ocean.prg", 8
+    'load "themodel.prg", 8
+    call start_irq()
+
     logo = fc_loadFCI("logo.fci") 
     call fc_loadFCIPalette(logo)
     call fc_displayTile(logo, 0, 0, 0, 0, 56, 14, false)
 
     tiles = fc_loadFCI("tiles.fci")
 
-    load "themodel.prg", 8
-    call start_irq()
 
     call fc_center(0, 40, 80, "Press any key")
+    'dim key$ as string * 1
+    'do
+    '    get key$
+    'loop until len(key$) > 0
     key = fc_getkey()
 end sub
 
