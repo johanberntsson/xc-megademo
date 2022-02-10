@@ -16,6 +16,10 @@ const STATE_REPAINT = 1
 const STATE_HIGHLIGHT = 2
 const STATE_EXPLOSION = 4
 
+' don't change these. They are updated by the interrupt
+dim irqtimer as long @$fb
+dim irqcounter as byte @$fe
+
 type Hexagon
     color as byte
     isbrick as byte
@@ -80,6 +84,68 @@ end function
 function y_array2screen as byte (x as byte, y as byte) static
     return 2 + 6 * y + 3 * (x mod 2)
 end function
+
+sub start_irq () static
+    ' 60 Hz is too much, so only increase the irqtimer
+    ' every 6th time (making it 10 Hz)
+    irqtimer = 0
+    irqcounter = 6
+    asm
+        jmp startirq
+irqcallback:
+        ; update irqtimer
+        ; first step down from 60 to 10 Hz
+        dec $fe
+        bne done
+        lda #6
+        sta $fe
+        ; increase irqtimer (long at $fb)
+        inc $fb
+        bne done
+        inc $fc
+        bne done
+        inc $fd
+        lda $fd
+        and #$7f ; don't allow negative numbers
+        sta $fd
+done:
+        ; play music
+        jsr $c0fa
+
+        ; end irq
+        lda #$ff
+        sta $d019
+        jmp $ea31
+startirq:
+        ; init music
+        jsr $c046
+
+        ; Suspend interrupts during init
+        sei
+        ;  Disable CIA
+        lda #$7f
+        sta $dc0d
+        ; Enable raster interrupts
+        lda $d01a
+        ora #$01
+        sta $d01a
+        ; High bit of raster line cleared, we're
+        ; only working within single byte ranges
+        lda $d011
+        and #$7f
+        sta $d011
+        ; We want an interrupt at the top line
+        lda #140
+        sta $d012
+        ; Push low and high byte of our routine into IRQ vector addresses
+        lda #<irqcallback
+        sta $0314
+        lda #>irqcallback
+        sta $0315
+        ; Enable interrupts again
+        cli
+    end asm
+end sub
 
 function is_valid_hex as byte (hex_x as byte, hex_y as byte) static
     ' negative x and y are 254 or 255, so will be caught below
@@ -340,7 +406,11 @@ sub show_intro() static
     call fc_loadFCIPalette(logo)
     call fc_displayTile(logo, 0, 0, 0, 0, 56, 14, false)
 
-    tiles = fc_loadFCI("tiles.fci") 
+    tiles = fc_loadFCI("tiles.fci")
+
+    load "themodel.prg", 8
+    call start_irq()
+
     call fc_center(0, 40, 80, "Press any key")
     key = fc_getkey()
 end sub

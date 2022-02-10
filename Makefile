@@ -8,8 +8,8 @@ XCBASIC3 := ../bin/Linux/xcbasic3
 LIBSOURCE :=  $(wildcard **/*.bas)
 
 # png files to convert and add to the floppy
-PNGS := $(wildcard img-src/*.png)
-FCIS := $(subst img-src, res, $(PNGS:%.png=%.fci))
+PNGS := $(wildcard assets-img/*.png)
+FCIS := $(subst assets-img, res, $(PNGS:%.png=%.fci))
 
 # phony target is simply a target that is always out-of-date
 .PHONY: demo, game, all, clean
@@ -27,7 +27,7 @@ game: game.d81
 
 
 # convert png to fci (MEGA65 full color mode graphics)
-res/%.fci: img-src/%.png
+res/%.fci: assets-img/%.png
 	python3 tools/png2fci.py -v0r $< $@
 
 bin/%.prg: %.bas $(LIBSOURCE)
@@ -40,6 +40,9 @@ bin/%.prg: %.bas $(LIBSOURCE)
 	$(C1541) -format xc-megademo,sk d81 $@
 	$(C1541) $@ -write bin/autoboot.c65
 	for filename in res/*; do \
+	    $(C1541) $@ -write $$filename; \
+	done
+	for filename in assets-other/*; do \
 	    $(C1541) $@ -write $$filename; \
 	done
 
