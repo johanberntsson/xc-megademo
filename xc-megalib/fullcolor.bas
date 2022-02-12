@@ -167,18 +167,17 @@ end sub
 sub fc_go8bit() shared static
     call enable_io()
     poke VIC3CTRL, 96 ' quit bitplane mode if set
-    poke 53297, 96    ' quit bitplane mode
     poke SCNPTR, $00  ' screen back to 0x800
     poke SCNPTR + 1, $08
     poke SCNPTR + 2, $00
-    poke SCNPTR + 3, $00
+    poke SCNPTR + 3, peek(SCNPTR) and $f0
     poke VIC4CTRL, peek(VIC4CTRL) and $fa ' clear fchi and 16bit chars
     poke CHRCOUNT, 40
     poke LINESTEP_LO, 40
     poke LINESTEP_HI, 0
     poke HOTREG, peek(HOTREG) or $80      ' enable hotreg
     poke VIC3CTRL, peek(VIC3CTRL) and $7f ' disable H640
-    poke VIC3CTRL, peek(VIC3CTRL) and $7f ' disable H640
+    poke VIC3CTRL, peek(VIC3CTRL) and $f7 ' disable V400
     call fc_setPalette(0, 0, 0, 0)
     call fc_setPalette(1, 255, 255, 255)
     call fc_setPalette(2, 255, 0, 0)
@@ -364,7 +363,7 @@ function fc_kbhit as byte () static
     return peek($d610)
 end function
 
-function fc_cgetc as byte () shared static
+function fc_cgetc as byte () static
     dim k as byte
     do
         k = peek($d610)
@@ -373,16 +372,22 @@ function fc_cgetc as byte () shared static
     return k
 end function
 
-sub fc_emptyBuffer() shared static
+sub fc_emptyBuffer() static
     dim dummy as byte
     do while fc_kbhit()
         dummy = fc_cgetc()
     loop
 end sub
 
-function fc_getkey as byte () shared static
-    call fc_emptyBuffer()
-    return fc_cgetc()
+function fc_getkey as byte (blocking as byte) shared static
+    if blocking then
+        call fc_emptyBuffer()
+        return fc_cgetc()
+    end if
+    dim k as byte
+    k = peek($d610)
+    if k then poke $d610, 0
+    return k
 end function
 
 sub fc_plotPetsciiChar(x as byte, y as byte, c as byte, color as byte, attribute as byte) shared static

@@ -1,6 +1,6 @@
-include "mega65-lib/mega65.bas"
-include "mega65-lib/memory.bas"
-include "mega65-lib/fullcolor.bas"
+include "xc-megalib/mega65.bas"
+include "xc-megalib/memory.bas"
+include "xc-megalib/fullcolor.bas"
 
 
 main:
@@ -37,6 +37,6 @@ main:
     call fc_hlinexy(20,10,20,$30)
 
     call fc_center(0, 13, gScreenColumns, "press any key")
-    call fc_getkey()
+    call fc_getkey(true)
     print "all done"
     call fc_fatal("just a test")

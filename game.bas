@@ -1,6 +1,6 @@
-include "mega65-lib/mega65.bas"
-include "mega65-lib/memory.bas"
-include "mega65-lib/fullcolor.bas"
+include "xc-megalib/mega65.bas"
+include "xc-megalib/memory.bas"
+include "xc-megalib/fullcolor.bas"
 
 const GAME_WIDTH = 15
 const GAME_HEIGHT = 7
@@ -110,8 +110,7 @@ irqcallback:
         sta $fd
 done:
         ; play music
-        ;jsr $a04e
-        ;jsr $a0fa
+        jsr $c059
 
         ; end irq
         lda #$ff
@@ -119,8 +118,8 @@ done:
         jmp $ea31
 startirq:
         ; init music
-        ;jsr $a000
-        ;jsr $a046
+        lda #0
+        jsr $c000
 
         ; Suspend interrupts during init
         sei
@@ -185,27 +184,30 @@ sub clear_tile(x as byte, y as byte) static
     dim ys as byte
     xs = x_array2screen(x, y)
     ys = y_array2screen(x, y)
-    'call fc_clearTile(xs, ys, 7, 6)
+    map(x,y).hascursor = false
     call fc_displayTile(tiles, xs, ys, 0, 6, 7, 6, false)
 end sub
 
 sub set_sprite(xx as byte, yy as byte) static
     for y as byte = 0 to GAME_HEIGHT - 1
         for x as byte = 0 to GAME_WIDTH - 1
-            if map(x,y).hascursor then
-                ' delete old cursor
-                map(x,y).hascursor = false
-                if map(x,y).isbrick then
-                    map(x,y).state = STATE_REPAINT
-                else
-                    call clear_tile(x, y)
-                    call refresh_adjacent(x_array2hex(x, y), y_array2hex(x, y))
-                end if
-            end if
             if x = xx and y = yy then
                 ' add new cursor
-                map(x,y).hascursor = true
-                map(x,y).state = STATE_REPAINT
+                if map(x,y).hascursor = false then
+                    map(x,y).hascursor = true
+                    map(x,y).state = STATE_REPAINT
+                end if
+            else
+                ' delete old cursor
+                if map(x,y).hascursor then
+                    map(x,y).hascursor = false
+                    if map(x,y).isbrick then
+                        map(x,y).state = STATE_REPAINT
+                    else
+                        call clear_tile(x, y)
+                        call refresh_adjacent(x_array2hex(x, y), y_array2hex(x, y))
+                    end if
+                end if
             end if
         next
     next
@@ -257,10 +259,11 @@ sub init_hexagons() static
 end sub
 
 function draw_hexagons as byte () static
-    dim numTiles as byte: numTiles = 0
     dim xx as byte
     dim yy as byte
+    dim numTiles as byte
 
+    numTiles = 0
     for y as byte = 0 to (GAME_HEIGHT - 1)
         for x as byte = 0 to GAME_WIDTH - 1
             if map(x,y).isbrick then numTiles = numTiles + 1
@@ -278,7 +281,7 @@ function draw_hexagons as byte () static
         next
     next
     return numTiles
-end sub
+end function
 
 sub remove_brick(hex_x as byte, hex_y as byte) static
     dim x as byte: x = x_hex2array(hex_x, hex_y) ' array coordinates
@@ -406,6 +409,7 @@ sub show_intro() static
 
     'load "ocean.prg", 8
     'load "themodel.prg", 8
+    load "armalyte.prg", 8
     call start_irq()
 
     logo = fc_loadFCI("logo.fci") 
@@ -416,11 +420,7 @@ sub show_intro() static
 
 
     call fc_center(0, 40, 80, "Press any key")
-    'dim key$ as string * 1
-    'do
-    '    get key$
-    'loop until len(key$) > 0
-    key = fc_getkey()
+    key = fc_getkey(true)
 end sub
 
 sub show_game() static
@@ -438,11 +438,12 @@ sub play_game() static
     dim hex_y as byte
     dim x as byte: x = 0
     dim y as byte: y = 0
+    dim num_tiles
+
 loop:
     call set_sprite(x, y)
-    call draw_hexagons()
-    key = fc_getkey()
-    'print key
+    num_tiles = draw_hexagons()
+    key = fc_getkey(false)
     if key = 97 or key = 157 and x > 0 then x = x - 1
     if key = 100 or key = 29 and x < GAME_WIDTH - 1 then x = x + 1
     if key = 119 or key = 145 and y > 0 then y = y - 1
@@ -453,7 +454,7 @@ loop:
         call break_bricks(hex_x, hex_y)
         call compact_vertically()
     end if 
-    'if key = 13 then call fc_fatal()
+    if key = 13 then call fc_fatal()
     goto loop
 end sub
 
