@@ -432,15 +432,40 @@ sub show_game() static
     call fc_displayTile(tiles, 56, 44, 0, 12, 24, 6, false)
 end sub
 
-sub play_game() static
+main:
+    call enable_40mhz()
+    call fc_init(true, true, true, 0, 0)
+
+    ' d054 controls the horizontal resolution and position
+    poke $d054,peek($d054) or 16
+    ' d076 should control vertical resolution and position
+    poke $d076,255
+
+    call show_intro()
+    randomize ti()
+    call init_hexagons()
+    call show_game()
+
     dim key as byte
     dim hex_x as byte
     dim hex_y as byte
     dim x as byte: x = 0
     dim y as byte: y = 0
-    dim num_tiles
+    dim num_tiles as byte
+    dim current_time as long
+    dim last_update_time as long
+    dim num_frames as byte
 
+    last_update_time = irqtimer
 loop:
+    ' wait for the next frame
+    do
+        current_time = irqtimer
+    loop while current_time = last_update_time
+    num_frames = current_time - last_update_time
+    'if num_frames > 1 then poke $d020,2: print num_frames, current_time, last_update_time else poke $d020,0
+    last_update_time = current_time
+
     call set_sprite(x, y)
     num_tiles = draw_hexagons()
     key = fc_getkey(false)
@@ -456,22 +481,3 @@ loop:
     end if 
     if key = 13 then call fc_fatal()
     goto loop
-end sub
-
-main:
-    call enable_40mhz()
-    call fc_init(true, true, true, 0, 0)
-
-    ' d054 controls the horizontal resolution and position
-    poke $d054,peek($d054) or 16
-    ' d076 should control vertical resolution and position
-    poke $d076,255
-
-    call show_intro()
-
-    randomize ti()
-    call init_hexagons()
-
-    call show_game()
-
-    call play_game()
