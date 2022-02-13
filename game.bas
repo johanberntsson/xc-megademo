@@ -15,6 +15,7 @@ const STATE_DONE = 0
 const STATE_REPAINT = 1
 const STATE_START_HIGHLIGHT = 2
 const STATE_KEEP_HIGHLIGHT = 3
+const STATE_APPEAR = 4
 
 ' don't change these. They are updated by the interrupt
 dim irqtimer as long @$fb
@@ -196,7 +197,7 @@ sub refresh_adjacent(hex_x as byte, hex_y as byte) static
             x = x_hex2array(hx, hy)
             y = y_hex2array(hx, hy)
             if map(x,y).isbrick then
-                map(x,y).state = STATE_REPAINT
+                if map(x,y).state = STATE_DONE then map(x,y).state = STATE_REPAINT
                 'print "- ",hx;",";hy
             end if
         end if
@@ -301,15 +302,16 @@ function draw_hexagons as byte () static
 
     numTiles = 0
     for y as byte = 0 to (GAME_HEIGHT - 1)
-        for x as byte = 0 to GAME_WIDTH - 1
+        for x as byte = 0 to (GAME_WIDTH - 1)
             if map(x,y).isbrick then numTiles = numTiles + 1
-            on map(x,y).state goto nexttile, repaint, start_highlight, keep_highlight 
+            on map(x,y).state goto nexttile, repaint, start_highlight, keep_highlight, appear
             call fc_fatal("Unknown hexagon state")
 repaint:    ' STATE_REPAINT
             map(x,y).state = STATE_DONE
             sx = x_array2screen(x, y)
             sy = y_array2screen(x, y)
             if map(x,y).isbrick then
+                'print "repaint",x;",";y,sx;",";sy
                 call fc_displayTile(tiles, sx, sy, 7 * map(x,y).color, 0, 7, 6, true)
             end if 
             if map(x,y).hascursor then
@@ -332,6 +334,21 @@ keep_highlight: ' STATE_KEEP_HIGHLIGHT
                 sy = y_array2hex(x, y)
                 call remove_brick(sx, sy)
             end if
+            goto nexttile
+appear:     ' STATE_APPEAR
+            if map(x,y).state_cnt > 0 then
+                map(x,y).state_cnt = map(x,y).state_cnt - 1
+                sx = x_array2screen(x, y)
+                sy = y_array2screen(x, y)
+                if (map(x,y).state_cnt mod 2) = 0 then
+                    call fc_displayTile(tiles, sx, sy, 0, 6, 7, 6, true)
+                else
+                    call fc_displayTile(tiles, sx, sy, 7 * map(x,y).color, 0, 7, 6, true)
+                end if
+            else
+                map(x,y).state = STATE_DONE
+            end if
+
 nexttile:
         next
     next
@@ -343,9 +360,10 @@ sub add_brick_to_queue(hex_x as byte, hex_y as byte, color as byte) static
 
     dim x as byte: x = x_hex2array(hex_x, hex_y)
     dim y as byte: y = y_hex2array(hex_x, hex_y)
-    print "add?", hex_x;",";hex_y,x;",";y,map(x, y).state;",";map(x, y).isbrick;",";map(x, y).color
+    'print "add?", hex_x;",";hex_y,x;",";y,map(x, y).state;",";map(x, y).isbrick;",";map(x, y).color
     if map(x, y).state = STATE_DONE and map(x, y).isbrick = true and map(x, y).color = color then
-        print "add", hex_x, hex_y
+        'print "add", hex_x;",";hex_y, x;",";y
+        map(x, y).state = STATE_START_HIGHLIGHT
         queue(queue_len).hex_x = hex_x
         queue(queue_len).hex_y = hex_y
         queue_len = queue_len + 1
@@ -366,6 +384,8 @@ function break_bricks as byte (hex_x as byte, hex_y as byte) static
     queue_len = 1
     queue(0).hex_x = hex_x
     queue(0).hex_y = hex_y
+    'print "add", hex_x;",";hex_y, x;",";y
+    map(x, y).state = STATE_START_HIGHLIGHT
     smashed_bricks = 0
     color = map(x, y).color
 
@@ -375,9 +395,7 @@ function break_bricks as byte (hex_x as byte, hex_y as byte) static
         queue_len = queue_len - 1
         hex_x = queue(queue_len).hex_x
         hex_y = queue(queue_len).hex_y
-        print "check", hex_x;",";hex_y,x;",";y,color
-        'call remove_brick(hex_x, hex_y)
-        map(x, y).state = STATE_START_HIGHLIGHT
+        'print "check", hex_x;",";hex_y,x;",";y,color
         smashed_bricks = smashed_bricks + 1
         ' adjacent hexagons
         for i as byte = 0 to 5
@@ -392,11 +410,54 @@ function break_bricks as byte (hex_x as byte, hex_y as byte) static
             first = 0
         end if
     loop 
-    print smashed_bricks
+    'print smashed_bricks
     return smashed_bricks
 end sub
 
+
+dim add_random_delay as byte: add_random_delay = 0
+sub add_random() static
+    if add_random_delay = 0 then
+        add_random_delay = 50
+    else
+        add_random_delay = add_random_delay - 1
+        return
+    end if 
+
+    dim num_empty as byte
+    dim new_brick_x as byte
+
+    num_empty = 0
+    for x as byte = 0 to (GAME_WIDTH - 1)
+        if map(x,0).isbrick = false then num_empty = num_empty + 1
+    next
+    if num_empty = 0 then return
+
+
+    new_brick_x = rndb() mod num_empty
+    'print "addrandom", new_brick_x, num_empty
+
+    num_empty = 0
+    for x as byte = 0 to (GAME_WIDTH - 1)
+        if map(x,0).isbrick then continue
+        num_empty = num_empty + 1
+        if num_empty <> new_brick_x then continue
+        ' add a random brick
+        map(x,0).isbrick = true
+        map(x,0).state = STATE_APPEAR
+        map(x,0).state_cnt = 10
+        map(x,0).color = rndb() mod 4
+    next
+end sub
+
+dim compact_delay as byte: compact_delay = 0
 sub compact_vertically() static
+    if compact_delay = 0 then
+        compact_delay = 1
+    else
+        compact_delay = compact_delay - 1
+        return
+    end if 
     ' array coordinates
     dim z as byte
     ' screen coordinates
@@ -415,7 +476,7 @@ sub compact_vertically() static
                 'print "hole", hex_x, hex_y
                 hex_z = hex_y - 2
                 z = y_hex2array(hex_x, hex_z)
-                do while hex_z < 254  and map(x, z).isbrick = false
+                do while hex_z < 254  and (map(x, z).isbrick = false or map(x,z).state <> STATE_DONE)
                     hex_z = hex_z - 2
                     z = y_hex2array(hex_x, hex_z)
                 loop
@@ -513,6 +574,7 @@ loop:
 
     ' update frames
     do 
+        call add_random()
         call compact_vertically()
         num_tiles = draw_hexagons()
         num_frames = num_frames - 1
