@@ -120,7 +120,7 @@ sub start_irq () static
         jmp startirq
 irqcallback:
         ; update irqtimer
-        ; first step down from 60 to 10 Hz
+        ; first step down from 60 to 20 Hz
         dec $fe
         bne done
         lda #3
@@ -412,8 +412,7 @@ function break_bricks as byte (hex_x as byte, hex_y as byte) static
     loop 
     'print smashed_bricks
     return smashed_bricks
-end sub
-
+end function
 
 dim add_random_delay as byte: add_random_delay = 0
 sub add_random() static
@@ -564,6 +563,7 @@ main:
     dim current_time as long
     dim last_update_time as long
     dim num_frames as byte
+    dim num_broken_bricks as byte
 
     for y = 0 to 20:for x = 0 to 39:poke 1024 + y*40 + x, 32:next:next ' TODO
 
@@ -596,7 +596,7 @@ loop:
     if key = 32 then 
         hex_x = x_array2hex(x, y)
         hex_y = y_array2hex(x, y)
-        call break_bricks(hex_x, hex_y)
+        num_broken_bricks = break_bricks(hex_x, hex_y)
     end if 
     if key = 13 then call fc_fatal()
     goto loop

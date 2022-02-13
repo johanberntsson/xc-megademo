@@ -181,7 +181,7 @@ function dma_peek as byte (highaddress as byte, address as long) shared static
     dmalist.dest_bank = 0
     call do_dma(@dmalist)
     return dmabyte
-end sub
+end function
 
 function dma_peek as byte (address as long) shared static overload
     return dma_peek(0, address)

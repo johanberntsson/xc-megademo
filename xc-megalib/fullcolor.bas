@@ -799,7 +799,7 @@ function fc_getkeyP as byte (x as byte, y as byte, prompt as String * 80) shared
     call fc_textcolor(WHITE)
     call fc_puts(@prompt)
     return fc_cgetc()
-end sub
+end function
 
 sub fc_hlinexy(x as byte, y as byte, width as byte, lineChar as byte) shared static
     for cgi as byte = x to x + width - 1
@@ -956,8 +956,9 @@ sub fc_resetPalette() shared static
 end sub
 
 sub fc_loadReservedBitmap(name as String * 80) shared static
+    dim info as byte
     if firstFreeGraphMem <> gConfig.bitmapbase then call fc_fatal("Reserved memory must be allocated first")
-    call fc_loadFCI(0, name)
+    info = fc_loadFCI(0, name)
     call fc_resetPalette()
 end sub
 
