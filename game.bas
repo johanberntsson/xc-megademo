@@ -468,28 +468,34 @@ sub compact_vertically() static
     dim hex_x as byte
     dim hex_y as byte
 
+    dim prev_z as byte
+    dim prev_hex_z as byte
+
     for x as byte = 0 to GAME_WIDTH - 1
         for y as int = GAME_HEIGHT - 1 to 0 step -1
             hex_x = x_array2hex(x, cbyte(y))
             hex_y = y_array2hex(x, cbyte(y))
             if map(x, y).isbrick = false then
                 'print "hole", hex_x, hex_y
-                hex_z = hex_y - 2
+                prev_hex_z = 255
+                hex_z = hex_y
                 z = y_hex2array(hex_x, hex_z)
                 do while hex_z < 254  and (map(x, z).isbrick = false or map(x,z).state <> STATE_DONE)
+                    prev_z = z
+                    prev_hex_z = hex_z
                     hex_z = hex_z - 2
                     z = y_hex2array(hex_x, hex_z)
                 loop
                 'print "result", hex_x, hex_z
-                if hex_z < 254 then
-                    ' move x.z to x.y
-                    map(x, y).color = map(x, z).color
-                    map(x, y).isbrick = map(x, z).isbrick
-                    map(x, y).state = STATE_REPAINT
+                if hex_z < 254 and prev_hex_z < 254 then
+                    ' move x.z to x.z - 1
+                    map(x, prev_z).color = map(x, z).color
+                    map(x, prev_z).isbrick = map(x, z).isbrick
+                    map(x, prev_z).state = STATE_REPAINT
                     ' clear x.z
                     map(x, z).isbrick = false
                     call clear_tile(x, z)
-                    call refresh_adjacent(hex_x, hex_y)
+                    call refresh_adjacent(hex_x, prev_hex_z)
                     call refresh_adjacent(hex_x, hex_z)
                     y = 0
                 end if
