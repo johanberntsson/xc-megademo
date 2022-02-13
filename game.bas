@@ -84,6 +84,32 @@ function y_array2screen as byte (x as byte, y as byte) static
     return 2 + 6 * y + 3 * (x mod 2)
 end function
 
+sub play_sample(sample_address as long, sample_length as word) static
+  dim time_base as long
+
+  ' Start of sample
+  poke $D721, BYTE0(sample_address)
+  poke $D722, BYTE1(sample_address)
+  poke $D723, BYTE2(sample_address)
+  poke $D72A, BYTE0(sample_address)
+  poke $D72B, BYTE1(sample_address)
+  poke $D72C, BYTE2(sample_address)
+  ' pointer to end of sample
+  poke $D727, BYTE0(sample_address + sample_length)
+  poke $D728, BYTE1(sample_address + sample_length)
+  ' frequency
+  time_base = $1a00
+  poke $D724, BYTE0(time_base)
+  poke $D725, BYTE1(time_base)
+  poke $D726, BYTE2(time_base)
+  ' volume
+  poke $D729, $ff
+  ' Enable playback of channel 0, 8-bit samples, signed
+  poke $D720, $a2
+  poke $D711, $80
+end sub
+
+
 sub start_irq () static
     ' 60 Hz is too much, so only increase the irqtimer
     ' every 6th time (making it 10 Hz)
@@ -109,7 +135,7 @@ irqcallback:
         sta $fd
 done:
         ; play music
-        ;jsr $c059
+        jsr $c059
 
         ; end irq
         lda #$ff
@@ -118,7 +144,7 @@ done:
 startirq:
         ; init music
         lda #0
-        ;jsr $c000
+        jsr $c000
 
         ; Suspend interrupts during init
         sei
@@ -343,6 +369,8 @@ function break_bricks as byte (hex_x as byte, hex_y as byte) static
     smashed_bricks = 0
     color = map(x, y).color
 
+    call play_sample(@sample1, 7500)
+
     do while queue_len > 0
         queue_len = queue_len - 1
         hex_x = queue(queue_len).hex_x
@@ -423,7 +451,7 @@ sub show_intro() static
     call fc_textcolor(WHITE)
     call fc_center(0, 40, 80, "Loading...")
 
-    'load "armalyte.prg", 8
+    load "armalyte.prg", 8
     call start_irq()
 
     logo = fc_loadFCI("logo.fci") 
@@ -504,3 +532,6 @@ loop:
     end if 
     if key = 13 then call fc_fatal()
     goto loop
+
+sample1:
+incbin "assets-other/marba.wav"
