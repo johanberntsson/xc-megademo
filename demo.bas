@@ -4,6 +4,7 @@ include "xc-megalib/fullcolor.bas"
 
 
 main:
+    dim key as byte
     dim tiles as byte
     dim name as String*80
 
@@ -37,6 +38,6 @@ main:
     call fc_hlinexy(20,10,20,$30)
 
     call fc_center(0, 13, gScreenColumns, "press any key")
-    call fc_getkey(true)
+    key = fc_getkey(true)
     print "all done"
     call fc_fatal("just a test")

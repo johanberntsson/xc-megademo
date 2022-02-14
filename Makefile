@@ -17,7 +17,10 @@ FCIS := $(subst assets-img, res, $(PNGS:%.png=%.fci))
 # make so that no intermediate files are ever removed
 .SECONDARY:
 
-all: game
+all: civ
+
+civ: civ.d81
+	$(XEMU) -8 civ.d81
 
 demo: demo.d81
 	$(XEMU) -8 demo.d81
