@@ -59,8 +59,12 @@ sub do_dma(list as word) static
     poke $d705, BYTE0(list)
 end sub 
 
-sub dma_copy_transparent(source_highaddress as byte, source_address as long, destination_highaddress as byte, destination_address as long, count as word, transparent as byte, source_skip as byte, source_skip_bit as byte, dest_skip as byte, dest_skip_bit as byte) shared static
-    dmalist_transparent.option_07 = $07
+sub dma_copy_transparent(source_highaddress as byte, source_address as long, destination_highaddress as byte, destination_address as long, count as word, transparent as byte, source_skip as byte, source_skip_bit as byte, dest_skip as byte, dest_skip_bit as byte, overwrite as byte) shared static
+    if overwrite then
+        dmalist_transparent.option_07 = $0b ' just a dummy
+    else
+        dmalist_transparent.option_07 = $07
+    end if 
     dmalist_transparent.option_0b = $0b
     dmalist_transparent.option_80 = $80
     dmalist_transparent.source_mb = source_highaddress

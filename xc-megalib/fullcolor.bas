@@ -697,7 +697,7 @@ function fc_displayFCIFile as byte (filename as String * 20, x0 as byte, y0 as b
     return info
 end function
 
-sub fc_mergeTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byte, t_w as byte, t_h as byte) shared static
+sub fc_mergeTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byte, t_w as byte, t_h as byte, overwrite as byte) shared static
     dim charIndex as word
     dim screenAddr as long
     dim toTileAddr as long
@@ -731,8 +731,8 @@ sub fc_mergeTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byte,
             charIndex = cword(toTileAddr / 64)
             if mergeTile_expand_x then
                 for z as byte = 0 to 7
-                    call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr + z * 8, 0, toTileAddr + z * 8, 8, 0, 0, 128, 1, 0)
-                    call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr + z * 8 + 4, 0, toTileAddr + z * 8 + 64, 8, 0, 0, 128, 1, 0)
+                    call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr + z * 8, 0, toTileAddr + z * 8, 8, 0, 0, 128, 1, 0, overwrite)
+                    call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr + z * 8 + 4, 0, toTileAddr + z * 8 + 64, 8, 0, 0, 128, 1, 0, overwrite)
                 next 
                 call dma_poke(screenAddr + 1, BYTE1(charIndex))
                 call dma_poke(screenAddr, BYTE0(charIndex))
@@ -740,7 +740,7 @@ sub fc_mergeTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byte,
                 call dma_poke(screenAddr + 3, BYTE1(charIndex))
                 call dma_poke(screenAddr + 2, BYTE0(charIndex))
             else
-                call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64, 0,    1, 0, 1, 0)
+                call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64, 0,    1, 0, 1, 0, overwrite)
                 call dma_poke(screenAddr + 1, BYTE1(charIndex))
                 call dma_poke(screenAddr, BYTE0(charIndex))
             end if
@@ -754,10 +754,18 @@ end sub
 sub fc_displayTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byte, t_w as byte, t_h as byte) shared static
     dim screenAddr as long
     dim charIndex as word
+    dim charBase as word
 
+    if gConfig.bitmapbase_high then
+        'call fc_fatal("displayTile can't use bitmap data in attic ram")
+        call fc_mergeTile(info, x0, y0, t_x, t_y, t_w, t_h, true)
+        return
+    end if
+
+    charBase = cword(fci(info).baseAdr / 64)
     for y as byte = 0 to t_h -1
         screenAddr = gConfig.screenbase + 2 *(x0 + (y0 + y) * cword(gScreenColumns))
-        charIndex = cword(fci(info).baseAdr / 64) + t_x + (y * fci(info).columns)
+        charIndex = charBase + t_x + cword(fci(info).columns) * (y + t_y)
         for x as byte = t_x to t_x + t_w - 1
             ' set highbyte first to avoid blinking
             ' while setting up the screeen
@@ -816,7 +824,7 @@ end sub
 sub fc_clrscr() shared static
     call fc_block(0, 0, windows(gCurrentWindow).width, windows(gCurrentWindow).height, 32, windows(gCurrentWindow).textcolor)
     call fc_gotoxy(0, 0)
-    if mergeTileMode then call fc_clearMergeTiles()
+    'if mergeTileMode then call fc_clearMergeTiles()
 end sub
 
 sub fc_textcolor(color as byte) shared static
@@ -1033,4 +1041,15 @@ sub fc_init(h640 as byte, v400 as byte, rows as byte, columns as byte) shared st
     gConfig.colorbase = $81000 ' $0ff ...
     call fc_real_init(h640, v400, rows, columns)
 end sub
+
+sub fc_init(h640 as byte, v400 as byte, rows as byte, columns as byte, bitmapbase_high as byte, bitmapbase as long) shared static overload
+    ' standard config
+    gConfig.screenbase = $12000
+    gConfig.palettebase = $14000
+    gConfig.bitmapbase_high = bitmapbase_high
+    gConfig.bitmapbase = bitmapbase
+    gConfig.colorbase = $81000 ' $0ff ...
+    call fc_real_init(h640, v400, rows, columns)
+end sub
+
 

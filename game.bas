@@ -312,10 +312,10 @@ repaint:    ' STATE_REPAINT
             sy = y_array2screen(x, y)
             if map(x,y).isbrick then
                 'print "repaint",x;",";y,sx;",";sy
-                call fc_mergeTile(tiles, sx, sy, 7 * map(x,y).color, 0, 7, 6)
+                call fc_mergeTile(tiles, sx, sy, 7 * map(x,y).color, 0, 7, 6, false)
             end if 
             if map(x,y).hascursor then
-                call fc_mergeTile(tiles, sx, sy, 7, 6, 7, 6)
+                call fc_mergeTile(tiles, sx, sy, 7, 6, 7, 6, false)
             end if
             goto nexttile
 start_highlight: ' STATE_START_HIGHLIGHT
@@ -323,7 +323,7 @@ start_highlight: ' STATE_START_HIGHLIGHT
             sy = y_array2screen(x, y)
             map(x,y).state_cnt = 2
             map(x,y).state = STATE_KEEP_HIGHLIGHT
-            call fc_mergeTile(tiles, sx, sy, 14, 6, 7, 6)
+            call fc_mergeTile(tiles, sx, sy, 14, 6, 7, 6, false)
             goto nexttile
 keep_highlight: ' STATE_KEEP_HIGHLIGHT
             if map(x,y).state_cnt > 0 then
@@ -341,9 +341,9 @@ appear:     ' STATE_APPEAR
                 sx = x_array2screen(x, y)
                 sy = y_array2screen(x, y)
                 if (map(x,y).state_cnt mod 2) = 0 then
-                    call fc_mergeTile(tiles, sx, sy, 0, 6, 7, 6)
+                    call fc_mergeTile(tiles, sx, sy, 0, 6, 7, 6, false)
                 else
-                    call fc_mergeTile(tiles, sx, sy, 7 * map(x,y).color, 0, 7, 6)
+                    call fc_mergeTile(tiles, sx, sy, 7 * map(x,y).color, 0, 7, 6, false)
                 end if
             else
                 map(x,y).state = STATE_DONE
@@ -525,8 +525,6 @@ sub show_intro() static
     'call fc_displayTile(logo, 0, 0, 0, 0, 56, 14)
 
     tiles = fc_loadFCI("tiles.fci")
-
-
     call fc_center(0, 40, 80, "Press any key")
     key = fc_getkey(true)
 end sub
@@ -541,20 +539,6 @@ sub show_game() static
 end sub
 
 main:
-    call enable_40mhz()
-    call fc_init(true, true, 0, 0)
-    call fc_setMergeTileMode()
-
-    ' d054 controls the horizontal resolution and position
-    poke $d054,peek($d054) or 16
-    ' d076 should control vertical resolution and position
-    poke $d076,255
-
-    call show_intro()
-    randomize ti()
-    call init_hexagons()
-    call show_game()
-
     dim key as byte
     dim hex_x as byte
     dim hex_y as byte
@@ -566,6 +550,24 @@ main:
     dim num_frames as byte
     dim num_broken_bricks as byte
 
+    call enable_40mhz()
+    ' The tiles bitmap won't fit in fast ram when we use 640x400
+    ' merge tile mode so we store it in attic ram instead
+    call fc_init(true, true, 0, 0, $80, clong(0))
+    call fc_setMergeTileMode()
+
+    ' d054 controls the horizontal resolution and position
+    'poke $d054,peek($d054) or 16
+    ' d076 should control vertical resolution and position
+    'poke $d076,255
+
+    call show_intro()
+
+    randomize ti()
+    call init_hexagons()
+
+    call show_game()
+
     x = 0: y = 0
     last_update_time = irqtimer
 loop:
@@ -574,7 +576,7 @@ loop:
         current_time = irqtimer
     loop while current_time = last_update_time
     num_frames = cbyte(current_time - last_update_time)
-    if num_frames > 10 then num_frames = 1: poke $d020, 2 ' TODO
+    if num_frames > 10 then num_frames = 1: poke $d020, 2 else poke $d020,0 ' TODO
     last_update_time = current_time
 
     ' update frames

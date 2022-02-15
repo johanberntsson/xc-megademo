@@ -21,8 +21,15 @@ main:
 
     call fc_loadFCIPalette(tiles)
     call fc_displayFCI(tiles, 0, 0, true)
-    call fc_mergeTile(tiles, 20, 20, 0, 0, 7, 6)
-    call fc_mergeTile(tiles, 25, 23, 0, 0, 7, 6)
+
+    call fc_displayTile(tiles, 0, 30, 7, 6, 7, 6)
+    call fc_mergeTile(tiles, 10, 40, 7, 6, 7, 6, false)
+
+    call fc_displayTile(tiles, 10, 30, 7, 12, 7, 6)
+    call fc_mergeTile(tiles, 20, 40, 7, 12, 7, 6, false)
+
+    call fc_mergeTile(tiles, 20, 20, 0, 0, 7, 6, false)
+    call fc_mergeTile(tiles, 25, 23, 0, 0, 7, 6, false)
 
     call fc_gotoxy(0,14)
     call fc_puts("What is your name? ")
