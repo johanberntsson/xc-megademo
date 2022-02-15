@@ -340,7 +340,7 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
             end if
             lastb = b
         end if
-        poke adrFrom + n, b
+        poke cword(adrFrom + n), b
         totRead = totRead + 1
         if n = 255 then
             ' buffer is full, copy to destination
@@ -703,29 +703,49 @@ sub fc_mergeTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byte,
     dim toTileAddr as long
     dim fromTileAddr as long
     dim rawToTileAddr as long
+    dim dx as byte
 
     'if mergeTileMode = false then call fc_fatal("merge mode not enabled")
+    if mergeTile_expand_x then
+        dx = 2
+        x0  = 2 * x0 -  mergeTile_x0
+    else 
+        dx = 1
+    end if 
+
     for y as byte = 0 to t_h -1
         if y + y0 < mergeTile_y0 or y + y0 >= mergeTile_y0 + mergeTile_height then continue
-        screenAddr = gConfig.screenbase + 2 *(x0 + (y0 + y) * cword(gScreenColumns))
+        screenAddr = gConfig.screenbase + 2 * (x0 + (y0 + y) * cword(gScreenColumns))
         fromTileAddr = fci(info).baseAdr + 64*(t_x + ((y + t_y) * clong(fci(info).columns)))
         rawToTileAddr = gConfig.bitmap_mirror + clong(64) * mergeTile_width * (y + y0 - mergeTile_y0)
         for x as byte = 0 to t_w - 1
-            if ((x + x0) < mergeTile_x0) or ((x + x0) >= (mergeTile_x0 + mergeTile_width)) then goto skip_to_next
-            toTileAddr = rawToTileAddr + clong(64) * (x + x0 - mergeTile_x0)
+            if (dx * x + x0 < mergeTile_x0) then goto skip_to_next
+            if (dx * x + x0 >= (mergeTile_x0 + mergeTile_width)) then goto skip_to_next
+            toTileAddr = rawToTileAddr + clong(64) * (dx * x + x0 - mergeTile_x0)
             if gConfig.bitmap_mirror < $40000 then
                 ' skip over DOS if needed
                 if toTileAddr + 64 > $1f800 then toTileAddr = toTileAddr + $4800
                 ' skip over C64 kernal if needed
                 if toTileAddr + 64 > $2c000 then toTileAddr = toTileAddr + $4000
             end if 
-            'print x;",";y, (toTileAddr - gConfig.bitmap_mirror)/64,toTileAddr
-            call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64, 0)
             charIndex = cword(toTileAddr / 64)
-            call dma_poke(screenAddr + 1, BYTE1(charIndex))
-            call dma_poke(screenAddr, BYTE0(charIndex))
+            if mergeTile_expand_x then
+                for z as byte = 0 to 7
+                    call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr + z * 8, 0, toTileAddr + z * 8, 8, 0, 0, 128, 1, 0)
+                    call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr + z * 8 + 4, 0, toTileAddr + z * 8 + 64, 8, 0, 0, 128, 1, 0)
+                next 
+                call dma_poke(screenAddr + 1, BYTE1(charIndex))
+                call dma_poke(screenAddr, BYTE0(charIndex))
+                charIndex = charIndex + 1
+                call dma_poke(screenAddr + 3, BYTE1(charIndex))
+                call dma_poke(screenAddr + 2, BYTE0(charIndex))
+            else
+                call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64, 0,    1, 0, 1, 0)
+                call dma_poke(screenAddr + 1, BYTE1(charIndex))
+                call dma_poke(screenAddr, BYTE0(charIndex))
+            end if
 skip_to_next:
-            screenAddr = screenAddr + 2
+            screenAddr = screenAddr + dx * 2
             fromTileAddr = fromTileAddr + 64
         next
     next

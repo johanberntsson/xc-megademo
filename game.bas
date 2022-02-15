@@ -566,8 +566,6 @@ main:
     dim num_frames as byte
     dim num_broken_bricks as byte
 
-    for y = 0 to 20:for x = 0 to 39:poke 1024 + y*40 + x, 32:next:next ' TODO
-
     x = 0: y = 0
     last_update_time = irqtimer
 loop:
