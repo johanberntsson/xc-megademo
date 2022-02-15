@@ -581,6 +581,7 @@ sub fc_setMergeTileMode(x0 as byte, y0 as byte, width as byte, height as byte, e
 
         ' check how much memory is needed for screen bitmap
         size = clong(mergeTile_width) * mergeTile_height * 64
+        if expand_x then size = size * 2
         gConfig.bitmap_mirror = $60000 - size
         if gConfig.bitmap_mirror < $40000 then 
             if gConfig.bitmap_mirror < $30000 then gConfig.bitmap_mirror = $19000 
@@ -589,8 +590,8 @@ sub fc_setMergeTileMode(x0 as byte, y0 as byte, width as byte, height as byte, e
 
         call fc_clearMergeTiles()
 
-        'print size, gConfig.bitmap_mirror, gConfig.bitmapbase
-        'call fc_fatal()
+        print size, gConfig.bitmap_mirror, gConfig.bitmapbase
+        call fc_fatal()
 
         if fciCount > 1 then call fc_fatal("Merge mode will destroy bitmaps")
         if gConfig.bitmapbase_high = 0 and gConfig.bitmapbase > gConfig.bitmap_mirror then
