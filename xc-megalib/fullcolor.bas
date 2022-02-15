@@ -9,13 +9,13 @@
 ' Bitmaps:
 ' - fc_loadFCI
 ' - fc_loadFCIPalette
-' - fc_clearTile
 ' - fc_displayFCI
 ' - fc_displayFCIFile
 ' - fc_displayTile
+' - fc_mergeTile
 ' - fc_resetPalette
 ' - fc_loadReservedBitmap
-' - fc_setUniqueTileMode
+' - fc_setMergeTileMode
 '
 ' Text input:
 ' - fc_cursor
@@ -62,12 +62,12 @@ const CURSOR_CHARACTER = 100
 type Config
     screenbase as long    ' location of 16 bit screen
     palettebase as long   ' loaded palettes base
-    bitmap_mirror as long ' bitmap base in uniqueMode (fast ram)
+    bitmap_mirror as long ' bitmap base in mergeMode (fast ram)
     bitmapbase as long    ' loaded bitmaps base
     colorbase as long     ' attribute/color ram
     bitmapbase_high as byte 
     ' bitmapbase_high is usually $00, but could be $80
-    ' if uniqueMode stores bitmaps in attic RAM
+    ' if mergeMode stores bitmaps in attic RAM
 end type
 
 type TextWindow
@@ -109,11 +109,12 @@ dim nextFreePalMem as long    ' location of next free palette memory block
 
 ' if set, uses bitmap_mirror - $5ffff for tiles
 ' that can be modified independently
-dim uniqueTile_X0 as byte
-dim uniqueTile_Y0 as byte
-dim uniqueTile_Width as byte
-dim uniqueTile_Height as byte
-dim uniqueTileMode as byte    
+dim mergeTileMode as byte    
+dim mergeTile_x0 as byte
+dim mergeTile_y0 as byte
+dim mergeTile_width as byte
+dim mergeTile_height as byte
+dim mergeTile_expand_x as byte    
 
 const MAX_WINDOWS =  8
 const MAX_FCI = 16
@@ -310,7 +311,6 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
     fci(info).size  = size
     adrTo = fc_allocGraphMem(size)
     fci(info).baseAdr = adrTo
-    adrFrom = $400
 
     dim lastb as word
     dim totRead as word
@@ -319,7 +319,7 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
     n = 0
     count = 0
     totRead = 0
-
+    adrFrom = $400
 
     ' if compressed = true, then the data is RLE encoded
     ' with repeated numbers being the compression marker
@@ -340,11 +340,11 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
             end if
             lastb = b
         end if
-        poke cword(adrFrom + n), b
+        poke adrFrom + n, b
         totRead = totRead + 1
-        if n = $ff then
+        if n = 255 then
             ' buffer is full, copy to destination
-            call dma_copy(0, adrFrom, gConfig.bitmapbase_high, adrTo, cword(n + 1))
+            call dma_copy(0, adrFrom, gConfig.bitmapbase_high, adrTo, cword(256))
             adrTo = adrTo + n + 1
             n = 0
         else
@@ -352,6 +352,7 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
         end if
     loop
     close 2
+    for n = 0 to 255: poke $0400 + n, 32: next
     return info
 end function
 
@@ -521,67 +522,87 @@ sub fc_gotoxy(x as byte, y as byte) shared static
     windows(gCurrentWindow).yc = y
 end sub
 
-sub fc_clearUniqueTiles() static
-    call dma_fill($18000, 0, cword($7800)) ' $18000 - $1f800 = 30 KB
+sub fc_clearMergeTiles() static
+    if gConfig.bitmap_mirror < $20000 then call dma_fill($19000, 0, cword($6800)) ' $19000 - $1f800 = 26 KB
     ' skip over DOS ($1f800 - $24000)
-    call dma_fill($24000, 0, cword($8000)) ' $24000 - $2c000 = 32 KB
+    if gConfig.bitmap_mirror < $30000 then call dma_fill($24000, 0, cword($8000)) ' $24000 - $2c000 = 32 KB
     ' skip over C64 kernal ($2c000 - $30000)
-    call dma_fill($30000, 0, $8000)
-    call dma_fill($38000, 0, $8000)
-    call dma_fill($40000, 0, $8000)
-    call dma_fill($48000, 0, $8000)
-    call dma_fill($50000, 0, $8000)
-    call dma_fill($58000, 0, $8000)
-    ' total: 30 + 7*32 = 254 KB (need 250 for 640x400x64 screen)
+    if gConfig.bitmap_mirror < $38000 then call dma_fill($30000, 0, $8000)
+    if gConfig.bitmap_mirror < $40000 then call dma_fill($38000, 0, $8000)
+    if gConfig.bitmap_mirror < $48000 then call dma_fill($40000, 0, $8000)
+    if gConfig.bitmap_mirror < $50000 then call dma_fill($48000, 0, $8000)
+    if gConfig.bitmap_mirror < $58000 then call dma_fill($50000, 0, $8000)
+    if gConfig.bitmap_mirror < $60000 then call dma_fill($58000, 0, $8000)
+    ' total: 26 + 7*32 = 250 KB (need 250 for 640x400x64 screen)
 end sub
 
-sub fc_setUniqueTileMode(x0 as byte, y0 as byte, width as byte, height as byte) shared static
+sub release_rom() static
+    ' Bank out the C64/C65 ROM, freeing $18000 - $3xxxx.
+    ' But, assuming that the program is started from C64
+    ' mode, we still need the kernal and DOS, so avoid
+    ' writing on $1f800 - $24000 and $2c000 - $30000
     dim b as byte
-    dim a as long: a = $30000
-    if uniqueTileMode = false then
-        ' Bank out the C64/C65 ROM, freeing $18000 - $3xxxx.
-        ' But, assuming that the program is started from C64
-        ' mode, we still need the kernal and DOS, so avoid
-        ' writing on $1f800 - $24000 and $2c000 - $30000
-        b =  dma_peek(a)
-        asm
-            ; Since dasm doesn't allow 4510 opcodes I have
-            ; written the assembler in acme, made a hexdump and
-            ; stored it here
-            byte $a9, $00       ; lda #$00
-            byte $aa            ; tax
-            byte $a8            ; tay
-            byte $4b            ; taz
-            byte $5c            ; map
-            byte $a9, $36       ; lda #$36 (no basic)
-            byte $85, $01       ; sta $01
-            byte $a9, $47       ; lda #$47
-            byte $8d, $2f, $d0  ; sta $d02f
-            byte $a9, $53       ; lda #$53
-            byte $8d, $2f, $d0  ; sta $d02f
-            byte $ea            ; eom
-            ; call MEGA65 hypervisor to remove write protection
-            byte $a9, $70       ; lda #$70
-            byte $8d, $40, $d6  ; sta $d640
-            byte $ea            ; nop
-        end asm
-        ' check if we can write to the new RAM (banking worked)
-        call dma_poke(a, b + 1)
-        if dma_peek(a) <> b + 1 then call fc_fatal("Banking failed")
-        call fc_clearUniqueTiles()
+    b =  dma_peek($30000)
+    asm
+        ; Since dasm doesn't allow 4510 opcodes I have
+        ; written the assembler in acme, made a hexdump and
+        ; stored it here
+        byte $a9, $00       ; lda #$00
+        byte $aa            ; tax
+        byte $a8            ; tay
+        byte $4b            ; taz
+        byte $5c            ; map
+        byte $a9, $36       ; lda #$36 (no basic)
+        byte $85, $01       ; sta $01
+        byte $a9, $47       ; lda #$47
+        byte $8d, $2f, $d0  ; sta $d02f
+        byte $a9, $53       ; lda #$53
+        byte $8d, $2f, $d0  ; sta $d02f
+        byte $ea            ; eom
+        ; call MEGA65 hypervisor to remove write protection
+        byte $a9, $70       ; lda #$70
+        byte $8d, $40, $d6  ; sta $d640
+        byte $ea            ; nop
+    end asm
+    ' check if we can write to the new RAM (banking worked)
+    call dma_poke($30000, b + 1)
+    if dma_peek($30000) <> b + 1 then call fc_fatal("Banking failed")
+end sub
 
-        uniqueTileMode = true
-        uniqueTile_X0 = x0
-        uniqueTile_Y0 = y0
-        uniqueTile_Width = width
-        uniqueTile_Height = height
+sub fc_setMergeTileMode(x0 as byte, y0 as byte, width as byte, height as byte, expand_x as byte) shared static
+    dim size as long
+    if mergeTileMode = false then
+        mergeTileMode = true
+        mergeTile_x0 = x0
+        mergeTile_y0 = y0
+        mergeTile_width = width
+        mergeTile_height = height
+        mergeTile_expand_x = expand_x
 
-        if fciCount > 1 then call fc_fatal("Unique will destroy bitmaps")
-        gConfig.bitmapbase = clong(0)
-        gConfig.bitmapbase_high = $80
+        ' check how much memory is needed for screen bitmap
+        size = clong(mergeTile_width) * mergeTile_height * 64
+        gConfig.bitmap_mirror = $60000 - size
+        if gConfig.bitmap_mirror < $40000 then 
+            if gConfig.bitmap_mirror < $30000 then gConfig.bitmap_mirror = $19000 
+            call release_rom()
+        end if
+
+        call fc_clearMergeTiles()
+
+        'print size, gConfig.bitmap_mirror, gConfig.bitmapbase
+        'call fc_fatal()
+
+        if fciCount > 1 then call fc_fatal("Merge mode will destroy bitmaps")
+        if gConfig.bitmapbase_high = 0 and gConfig.bitmapbase > gConfig.bitmap_mirror then
+            call fc_fatal("Bad bitmapbase overwrites the merge bitmap")
+        end if
         call fc_freeGraphAreas()
-
     end if 
+end sub
+
+sub fc_setMergeTileMode() shared static overload
+    ' set whole screen to merge tile mode
+    call fc_setMergeTileMode(0, 0, gScreenColumns, gScreenRows, false)
 end sub
 
 function fc_input as String * 80 () shared static
@@ -676,58 +697,48 @@ function fc_displayFCIFile as byte (filename as String * 20, x0 as byte, y0 as b
     return info
 end function
 
-sub fc_clearTile(x0 as byte, y0 as byte, t_w as byte, t_h as byte) shared static
-    dim toTileAddr as long
-    dim rawToTileAddr as long
-
-    if uniqueTileMode = false then call fc_fatal("clearTile only for unique mode")
-
-    for y as byte = 0 to t_h -1
-        rawToTileAddr = gConfig.bitmap_mirror + 64 * (x0 + (clong(gScreenColumns) * (y + y0)))
-        for x as byte = 0 to t_w - 1
-            toTileAddr = rawToTileAddr
-            ' skip over DOS if needed
-            if toTileAddr + 64 > $1f800 then toTileAddr = toTileAddr + $4800
-            ' skip over C64 kernal if needed
-            if toTileAddr + 64 > $2c000 then toTileAddr = toTileAddr + $4000
-            call dma_fill(toTileAddr, 0, cword(64))
-            rawToTileAddr = rawToTileAddr + 64
-        next
-    next
-end sub
-
-sub fc_displayTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byte, t_w as byte, t_h as byte, mergeTiles as byte) shared static
-    dim screenAddr as long
+sub fc_mergeTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byte, t_w as byte, t_h as byte) shared static
     dim charIndex as word
+    dim screenAddr as long
     dim toTileAddr as long
     dim fromTileAddr as long
     dim rawToTileAddr as long
 
+    'if mergeTileMode = false then call fc_fatal("merge mode not enabled")
     for y as byte = 0 to t_h -1
+        if y + y0 < mergeTile_y0 or y + y0 >= mergeTile_y0 + mergeTile_height then continue
         screenAddr = gConfig.screenbase + 2 *(x0 + (y0 + y) * cword(gScreenColumns))
-        if uniqueTileMode then
-            fromTileAddr = fci(info).baseAdr + 64*(t_x + ((y + t_y) * clong(fci(info).columns)))
-            ' copy bitmap asset to location in bitmap_mirror - $5xxxx
-            rawToTileAddr = gConfig.bitmap_mirror + 64 * (x0 + (clong(gScreenColumns) * (y + y0)))
-        else
-            charIndex = cword(fci(info).baseAdr / 64) + t_x + (y * fci(info).columns)
-        end if
-        for x as byte = t_x to t_x + t_w - 1
-            if uniqueTileMode then
-                toTileAddr = rawToTileAddr
+        fromTileAddr = fci(info).baseAdr + 64*(t_x + ((y + t_y) * clong(fci(info).columns)))
+        rawToTileAddr = gConfig.bitmap_mirror + clong(64) * mergeTile_width * (y + y0 - mergeTile_y0)
+        for x as byte = 0 to t_w - 1
+            if ((x + x0) < mergeTile_x0) or ((x + x0) >= (mergeTile_x0 + mergeTile_width)) then goto skip_to_next
+            toTileAddr = rawToTileAddr + clong(64) * (x + x0 - mergeTile_x0)
+            if gConfig.bitmap_mirror < $40000 then
                 ' skip over DOS if needed
                 if toTileAddr + 64 > $1f800 then toTileAddr = toTileAddr + $4800
                 ' skip over C64 kernal if needed
                 if toTileAddr + 64 > $2c000 then toTileAddr = toTileAddr + $4000
-                if mergeTiles then
-                    call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64, 0)
-                else
-                    call dma_copy(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64)
-                end if
-                charIndex = cword(toTileAddr / 64)
-                fromTileAddr = fromTileAddr + 64
-                rawToTileAddr = rawToTileAddr + 64
-            end if
+            end if 
+            'print x;",";y, (toTileAddr - gConfig.bitmap_mirror)/64,toTileAddr
+            call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64, 0)
+            charIndex = cword(toTileAddr / 64)
+            call dma_poke(screenAddr + 1, BYTE1(charIndex))
+            call dma_poke(screenAddr, BYTE0(charIndex))
+skip_to_next:
+            screenAddr = screenAddr + 2
+            fromTileAddr = fromTileAddr + 64
+        next
+    next
+end sub
+
+sub fc_displayTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byte, t_w as byte, t_h as byte) shared static
+    dim screenAddr as long
+    dim charIndex as word
+
+    for y as byte = 0 to t_h -1
+        screenAddr = gConfig.screenbase + 2 *(x0 + (y0 + y) * cword(gScreenColumns))
+        charIndex = cword(fci(info).baseAdr / 64) + t_x + (y * fci(info).columns)
+        for x as byte = t_x to t_x + t_w - 1
             ' set highbyte first to avoid blinking
             ' while setting up the screeen
             call dma_poke(screenAddr + 1, BYTE1(charIndex))
@@ -785,7 +796,7 @@ end sub
 sub fc_clrscr() shared static
     call fc_block(0, 0, windows(gCurrentWindow).width, windows(gCurrentWindow).height, 32, windows(gCurrentWindow).textcolor)
     call fc_gotoxy(0, 0)
-    if uniqueTileMode then call fc_clearUniqueTiles()
+    if mergeTileMode then call fc_clearMergeTiles()
 end sub
 
 sub fc_textcolor(color as byte) shared static
@@ -818,7 +829,7 @@ sub fc_setwin(win as byte) shared static
     gCurrentWindow = win
 end sub
 
-function fc_makeWin as byte (x0 as byte, y0 as byte, width as byte, height as byte) static
+function fc_makewin as byte (x0 as byte, y0 as byte, width as byte, height as byte) shared static
     dim w as byte
     if windowCount = MAX_WINDOWS then call fc_fatal("too many windows")
     w = windowCount
@@ -962,10 +973,10 @@ sub fc_loadReservedBitmap(name as String * 80) shared static
     call fc_resetPalette()
 end sub
 
-sub fc_real_init(h640 as byte, v400 as byte, unique as byte, rows as byte, columns as byte) static
+sub fc_real_init(h640 as byte, v400 as byte, rows as byte, columns as byte) static
     call enable_io()
     poke 53272,23 ' make lowercase
-    uniqueTileMode = false
+    mergeTileMode = false
 
     if peek($d06f) and 128 then
         gTopBorder = TOPBORDER_NTSC
@@ -975,7 +986,7 @@ sub fc_real_init(h640 as byte, v400 as byte, unique as byte, rows as byte, colum
         gBottomBorder = BOTTOMBORDER_PAL
     end if
 
-    ' where the sceen bitmap starts in uniqueMode
+    ' where the sceen bitmap starts in mergeMode
     gConfig.bitmap_mirror = $19000 
 
     firstFreePalMem = gConfig.palettebase
@@ -988,19 +999,18 @@ sub fc_real_init(h640 as byte, v400 as byte, unique as byte, rows as byte, colum
     autoCR = TRUE
 
     call fc_screenmode(h640, v400, rows, columns)
-    if unique then call fc_setUniqueTileMode(0, 0, gScreenColumns, gScreenRows)
 
     call fc_setfont(-1)
     call fc_textcolor(GREEN)
 end sub
 
-sub fc_init(h640 as byte, v400 as byte, unique as byte, rows as byte, columns as byte) shared static
+sub fc_init(h640 as byte, v400 as byte, rows as byte, columns as byte) shared static
     ' standard config
     gConfig.screenbase = $12000
     gConfig.palettebase = $14000
     gConfig.bitmapbase_high = $00
     gConfig.bitmapbase = gConfig.palettebase + MAX_FCI * 256 * 3
     gConfig.colorbase = $81000 ' $0ff ...
-    call fc_real_init(h640, v400, unique, rows, columns)
+    call fc_real_init(h640, v400, rows, columns)
 end sub
 

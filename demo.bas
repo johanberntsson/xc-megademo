@@ -9,17 +9,20 @@ main:
     dim name as String*80
 
     call enable_40mhz()
-    call fc_init(true, true, false, 0, 0)
+    call fc_init(true, true, 0, 0)
+    'call fc_setMergeTileMode(20, 20, 20, 20, false)
+    call fc_setMergeTileMode()
 
     call fc_plotPetsciiChar(0, 20, $35, WHITE, 0)
     call fc_plotPetsciiChar(2, 17, $30, RED, 0)
 
     'call fc_displayFCIFile("tiles.fci",0,0)
     tiles = fc_loadFCI("tiles.fci")
+
     call fc_loadFCIPalette(tiles)
     call fc_displayFCI(tiles, 0, 0, true)
-    call fc_displayTile(tiles, 20, 20, 0, 0, 7, 6, true)
-    call fc_displayTile(tiles, 25, 23, 0, 0, 7, 6, true)
+    call fc_mergeTile(tiles, 20, 20, 0, 0, 7, 6)
+    call fc_mergeTile(tiles, 25, 23, 0, 0, 7, 6)
 
     call fc_gotoxy(0,14)
     call fc_puts("What is your name? ")

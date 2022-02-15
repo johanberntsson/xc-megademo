@@ -211,7 +211,7 @@ sub clear_tile(x as byte, y as byte) static
     xs = x_array2screen(x, y)
     ys = y_array2screen(x, y)
     map(x,y).hascursor = false
-    call fc_displayTile(tiles, xs, ys, 0, 6, 7, 6, false)
+    call fc_displayTile(tiles, xs, ys, 0, 6, 7, 6)
 end sub
 
 sub show_cursor(xx as byte, yy as byte) static
@@ -312,10 +312,10 @@ repaint:    ' STATE_REPAINT
             sy = y_array2screen(x, y)
             if map(x,y).isbrick then
                 'print "repaint",x;",";y,sx;",";sy
-                call fc_displayTile(tiles, sx, sy, 7 * map(x,y).color, 0, 7, 6, true)
+                call fc_mergeTile(tiles, sx, sy, 7 * map(x,y).color, 0, 7, 6)
             end if 
             if map(x,y).hascursor then
-                call fc_displayTile(tiles, sx, sy, 7, 6, 7, 6, true)
+                call fc_mergeTile(tiles, sx, sy, 7, 6, 7, 6)
             end if
             goto nexttile
 start_highlight: ' STATE_START_HIGHLIGHT
@@ -323,7 +323,7 @@ start_highlight: ' STATE_START_HIGHLIGHT
             sy = y_array2screen(x, y)
             map(x,y).state_cnt = 2
             map(x,y).state = STATE_KEEP_HIGHLIGHT
-            call fc_displayTile(tiles, sx, sy, 14, 6, 7, 6, true)
+            call fc_mergeTile(tiles, sx, sy, 14, 6, 7, 6)
             goto nexttile
 keep_highlight: ' STATE_KEEP_HIGHLIGHT
             if map(x,y).state_cnt > 0 then
@@ -341,9 +341,9 @@ appear:     ' STATE_APPEAR
                 sx = x_array2screen(x, y)
                 sy = y_array2screen(x, y)
                 if (map(x,y).state_cnt mod 2) = 0 then
-                    call fc_displayTile(tiles, sx, sy, 0, 6, 7, 6, true)
+                    call fc_mergeTile(tiles, sx, sy, 0, 6, 7, 6)
                 else
-                    call fc_displayTile(tiles, sx, sy, 7 * map(x,y).color, 0, 7, 6, true)
+                    call fc_mergeTile(tiles, sx, sy, 7 * map(x,y).color, 0, 7, 6)
                 end if
             else
                 map(x,y).state = STATE_DONE
@@ -520,9 +520,9 @@ sub show_intro() static
     load "armalyte.prg", 8
     call start_irq()
 
-    logo = fc_loadFCI("logo.fci") 
-    call fc_loadFCIPalette(logo)
-    call fc_displayTile(logo, 0, 0, 0, 0, 56, 14, false)
+    'logo = fc_loadFCI("logo.fci") 
+    'call fc_loadFCIPalette(logo)
+    'call fc_displayTile(logo, 0, 0, 0, 0, 56, 14)
 
     tiles = fc_loadFCI("tiles.fci")
 
@@ -535,14 +535,15 @@ sub show_game() static
     'call show_sprite()
     call fc_clrscr()
     call fc_loadFCIPalette(tiles)
-    call fc_displayTile(tiles, 0, 44, 0, 12, 28, 6, false)
-    call fc_displayTile(tiles, 28, 44, 0, 12, 28, 6, false)
-    call fc_displayTile(tiles, 56, 44, 0, 12, 24, 6, false)
+    call fc_displayTile(tiles, 0, 44, 0, 12, 28, 6)
+    call fc_displayTile(tiles, 28, 44, 0, 12, 28, 6)
+    call fc_displayTile(tiles, 56, 44, 0, 12, 24, 6)
 end sub
 
 main:
     call enable_40mhz()
-    call fc_init(true, true, true, 0, 0)
+    call fc_init(true, true, 0, 0)
+    call fc_setMergeTileMode()
 
     ' d054 controls the horizontal resolution and position
     poke $d054,peek($d054) or 16
