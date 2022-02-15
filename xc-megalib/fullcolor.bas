@@ -590,8 +590,8 @@ sub fc_setMergeTileMode(x0 as byte, y0 as byte, width as byte, height as byte, e
 
         call fc_clearMergeTiles()
 
-        print size, gConfig.bitmap_mirror, gConfig.bitmapbase
-        call fc_fatal()
+        'print size, gConfig.bitmap_mirror, gConfig.bitmapbase
+        'call fc_fatal()
 
         if fciCount > 1 then call fc_fatal("Merge mode will destroy bitmaps")
         if gConfig.bitmapbase_high = 0 and gConfig.bitmapbase > gConfig.bitmap_mirror then
@@ -705,6 +705,8 @@ sub fc_mergeTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byte,
     dim fromTileAddr as long
     dim rawToTileAddr as long
     dim dx as byte
+    dim u as byte
+    dim v as byte
 
     'if mergeTileMode = false then call fc_fatal("merge mode not enabled")
     if mergeTile_expand_x then
@@ -731,10 +733,51 @@ sub fc_mergeTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byte,
             end if 
             charIndex = cword(toTileAddr / 64)
             if mergeTile_expand_x then
-                for z as byte = 0 to 7
-                    call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr + z * 8, 0, toTileAddr + z * 8, 8, 0, 0, 128, 1, 0, overwrite)
-                    call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr + z * 8 + 4, 0, toTileAddr + z * 8 + 64, 8, 0, 0, 128, 1, 0, overwrite)
-                next 
+                'for z as byte = 0 to 7
+                '    call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr + z * 8, 0, toTileAddr + z * 8, 8, 0, 0, 128, 1, 0, overwrite)
+                '    call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr + z * 8 + 4, 0, toTileAddr + z * 8 + 64, 8, 0, 0, 128, 1, 0, overwrite)
+                'next 
+                'call dma_poke(screenAddr + 1, BYTE1(charIndex))
+                'call dma_poke(screenAddr, BYTE0(charIndex))
+                'charIndex = charIndex + 1
+                'call dma_poke(screenAddr + 3, BYTE1(charIndex))
+                'call dma_poke(screenAddr + 2, BYTE0(charIndex))
+
+
+                'call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64, 0,    1, 0, 1, 0, overwrite)
+                call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr, 0, $0400, 64, 0,    1, 0, 1, 0, true)
+
+                asm
+                    ldx #0   ; 0 - 63 (source data at $0400)
+                    ldy #0   ; pointer into $0440,y and $0480, y
+loop:               txa
+                    and #$03
+                    bne stillcopying
+                    txa
+                    and #$f8
+                    tay
+stillcopying:       txa
+                    and #$04
+                    bne bank2
+                    lda $400,x
+                    sta $440,y
+                    iny
+                    sta $440,y
+                    jmp done
+bank2:
+                    lda $400,x
+                    sta $480,y
+                    iny
+                    sta $480,y
+done:               iny
+                    inx
+                    cpx #64
+                    bne loop
+                end asm
+                'print "": print "": print "": print "": print "": print "": print ""
+                'call fc_fatal()
+                call dma_copy_transparent(0, $0440, 0, toTileAddr, 128, 0,    1, 0, 1, 0, overwrite)
+
                 call dma_poke(screenAddr + 1, BYTE1(charIndex))
                 call dma_poke(screenAddr, BYTE0(charIndex))
                 charIndex = charIndex + 1
