@@ -2,26 +2,29 @@ include "xc-megalib/mega65.bas"
 include "xc-megalib/memory.bas"
 include "xc-megalib/fullcolor.bas"
 
-main:
-    dim key as byte
-    dim tiles as byte
-    dim name as String*80
+dim tiles as byte
 
-    call enable_40mhz()
-    ' 640*400 (expand x) (slow)
-    call fc_init(true, false, 0, 0)
-    call fc_setMergeTileMode(10,1, 60, 23, true)
-    ' 320 * 200 (fast)
-    'call fc_init(false, false, 0, 0)
-    'call fc_setMergeTileMode(10,1, 30, 23, false)
+sub draw_map1() static
+    call fc_putsxy(0, 1, "123456789X")
+    call fc_putsxy(66, 0, "1234")
+    call fc_putsxy(70, 1, "X123456789")
+    call fc_mergeTile(tiles, 10, 0, 0, 0, 4, 4, false)
+    call fc_mergeTile(tiles, 38, 0, 12, 0, 4, 4, false)
+    'call fc_mergeTile(tiles, 36, 3, 12, 0, 4, 4, false)
+    'call fc_mergeTile(tiles, 40, 3, 12, 0, 4, 4, false)
+end sub
 
-    tiles = fc_loadFCI("civ.fci")
-    call fc_loadFCIPalette(tiles)
-    'call fc_displayFCI(tiles, 0, 0)
-
+sub draw_map() static
     call fc_putsxy(9, 1, "X")
     call fc_putsxy(70, 1, "X")
     call fc_putsxy(10, 24, "X")
+
+    call fc_putsxy(0, 0, "Game Orders Advisors World Civilopedia")
+    call fc_putsxy(0, 7, "30,000")
+    call fc_putsxy(0, 8, "3300 BC")
+    call fc_putsxy(0, 10, "Spartan")
+    call fc_putsxy(0, 11, "Militia")
+    call fc_putsxy(0, 12, "Moves: 1")
 
     call fc_mergeTile(tiles, 10, 0, 0, 0, 4, 4, false)
     call fc_mergeTile(tiles, 14, 0, 8, 0, 4, 4, false)
@@ -108,15 +111,30 @@ main:
     call fc_mergeTile(tiles, 30, 24, 12, 0, 4, 4, false)
     call fc_mergeTile(tiles, 34, 24, 12, 0, 4, 4, false)
     call fc_mergeTile(tiles, 38, 24, 12, 0, 4, 4, false)
-
-    call fc_putsxy(0, 0, "Game Orders Advisors World Civilopedia")
-    call fc_putsxy(0, 7, "30,000")
-    call fc_putsxy(0, 8, "3300 BC")
-    call fc_putsxy(0, 10, "Spartan")
-    call fc_putsxy(0, 11, "Militia")
-    call fc_putsxy(0, 12, "Moves: 1")
-
     call fc_center(0, 24, gScreenColumns, "press any key")
-    key = fc_getkey(true)
-    'print "all done"
-    call fc_fatal("all done")
+end sub 
+
+main:
+    dim key as byte
+    dim name as String*80
+
+    call enable_40mhz()
+    ' 640*200 (expand x) (slow)
+    call fc_init(true, false, 0, 0)
+    call fc_setMergeTileMode(10,1, 60, 23, true)
+    ' 320 * 200 (fast)
+    'call fc_init(false, false, 0, 0)
+    'call fc_setMergeTileMode(10,1, 30, 23, false)
+
+    tiles = fc_loadFCI("civ.fci")
+    call fc_loadFCIPalette(tiles)
+    call draw_map()
+
+loop:
+    key = fc_getkey(false)
+    if key = 97 or key = 157 then call fc_scrollMergeLeft()
+    if key = 100 or key = 29 then call fc_scrollMergeRight()
+    if key = 119 or key = 145 then call fc_scrollMergeUp()
+    if key = 115 or key = 17 then call fc_scrollMergeDown()
+    if key = 13 then call fc_fatal()
+    goto loop

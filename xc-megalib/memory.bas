@@ -27,14 +27,6 @@ type Dmalist_transparent
     source_mb as byte
     option_81 as byte
     dest_mb as byte
-    option_82 as byte
-    source_skip_bit as byte
-    option_83 as byte
-    source_skip as byte
-    option_84 as byte
-    dest_skip_bit as byte
-    option_85 as byte
-    dest_skip as byte
     option_86 as byte
     transparent as byte
     end_of_options as byte
@@ -59,25 +51,18 @@ sub do_dma(list as word) static
     poke $d705, BYTE0(list)
 end sub 
 
-sub dma_copy_transparent(source_highaddress as byte, source_address as long, destination_highaddress as byte, destination_address as long, count as word, transparent as byte, source_skip as byte, source_skip_bit as byte, dest_skip as byte, dest_skip_bit as byte, overwrite as byte) shared static
+sub dma_copy_transparent(source_highaddress as byte, source_address as long, destination_highaddress as byte, destination_address as long, count as word, transparent as byte, overwrite as byte) shared static
     if overwrite then
-        dmalist_transparent.option_07 = $0b ' just a dummy
+        dmalist_transparent.option_07 = $0b
     else
+        ' transparancy enabled
         dmalist_transparent.option_07 = $07
-    end if 
+    end if
     dmalist_transparent.option_0b = $0b
     dmalist_transparent.option_80 = $80
     dmalist_transparent.source_mb = source_highaddress
     dmalist_transparent.option_81 = $81
     dmalist_transparent.dest_mb = destination_highaddress
-    dmalist_transparent.option_82 = $82
-    dmalist_transparent.source_skip_bit = source_skip_bit
-    dmalist_transparent.option_83 = $83
-    dmalist_transparent.source_skip = source_skip
-    dmalist_transparent.option_84 = $84
-    dmalist_transparent.dest_skip_bit = dest_skip_bit
-    dmalist_transparent.option_85 = $85
-    dmalist_transparent.dest_skip = dest_skip
     dmalist_transparent.option_86 = $86
     dmalist_transparent.transparent = transparent
     dmalist_transparent.end_of_options = 0

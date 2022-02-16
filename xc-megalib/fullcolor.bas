@@ -62,7 +62,8 @@ const CURSOR_CHARACTER = 100
 type Config
     screenbase as long    ' location of 16 bit screen
     palettebase as long   ' loaded palettes base
-    bitmap_mirror as long ' bitmap base in mergeMode (fast ram)
+    merge_bitmap_size as long ' bitmap size in mergeMode
+    merge_bitmap as long  ' modified bitmap base address in mergeMode
     bitmapbase as long    ' loaded bitmaps base
     colorbase as long     ' attribute/color ram
     bitmapbase_high as byte 
@@ -107,7 +108,7 @@ dim firstFreePalMem as long   ' first free palette memory block
 dim nextFreeGraphMem as long  ' location of next free graphics block
 dim nextFreePalMem as long    ' location of next free palette memory block
 
-' if set, uses bitmap_mirror - $5ffff for tiles
+' if set, uses merge_bitmap - $5ffff for tiles
 ' that can be modified independently
 dim mergeTileMode as byte    
 dim mergeTile_x0 as byte
@@ -522,17 +523,84 @@ sub fc_gotoxy(x as byte, y as byte) shared static
     windows(gCurrentWindow).yc = y
 end sub
 
+function real_merge_bitmap as long() static
+    if gConfig.merge_bitmap_size > $30000 then call fc_fatal("mixed bitmap is too large")
+    return $60000 - gConfig.merge_bitmap_size
+end function
+
+
+sub fc_scrollMergeUp() shared static
+    dim bas0 as long
+    dim bas1 as long
+    dim size as word
+    size = cword(mergeTile_width) * 64
+    bas0 = real_merge_bitmap()
+    bas1 = bas0 + size
+    for i as byte = 0 to mergeTile_height
+        call dma_copy(bas1, bas0, size)
+        bas0 = bas0 + size
+        bas1 = bas1 + size
+    next
+end sub
+
+sub fc_scrollMergeDown() shared static
+    dim bas0 as long
+    dim bas1 as long
+    dim size as word
+    size = cword(mergeTile_width) * 64
+    bas0 = real_merge_bitmap() + clong(size) * (mergeTile_height - 1)
+    bas1 = bas0 - size
+    for i as byte = 1 to mergeTile_height
+        call dma_copy(bas1, bas0, size)
+        bas0 = bas0 - size
+        bas1 = bas1 - size
+    next
+end sub
+
+sub fc_scrollMergeLeft() shared static
+    dim bas0 as long
+    dim bas1 as long
+    dim size as word
+    dim dx as byte
+    if mergeTile_expand_x then dx = 2 else dx = 1
+    size = cword(mergeTile_width) * 64
+    bas0 = real_merge_bitmap()
+    bas1 = bas0 + 64 * dx
+    for i as byte = 0 to mergeTile_height
+        call dma_copy(bas1, bas0, size - 64 * dx)
+        bas0 = bas0 + size
+        bas1 = bas1 + size
+    next
+end sub
+
+sub fc_scrollMergeRight() shared static
+    dim bas0 as long
+    dim bas1 as long
+    dim size as word
+    dim dx as byte
+    if mergeTile_expand_x then dx = 2 else dx = 1
+    size = cword(mergeTile_width) * 64
+    bas0 = real_merge_bitmap()
+    bas1 = bas0 + 64 * dx
+    for i as byte = 0 to mergeTile_height
+        call dma_copy(0, bas0, $80, clong(0), size - 64 * dx)
+        call dma_copy($80, clong(0), 0, bas1, size - 64 * dx)
+        bas0 = bas0 + size
+        bas1 = bas1 + size
+    next
+end sub
+
 sub fc_clearMergeTiles() static
-    if gConfig.bitmap_mirror < $20000 then call dma_fill($19000, 0, cword($6800)) ' $19000 - $1f800 = 26 KB
+    if gConfig.merge_bitmap < $20000 then call dma_fill($19000, 0, cword($6800)) ' $19000 - $1f800 = 26 KB
     ' skip over DOS ($1f800 - $24000)
-    if gConfig.bitmap_mirror < $30000 then call dma_fill($24000, 0, cword($8000)) ' $24000 - $2c000 = 32 KB
+    if gConfig.merge_bitmap < $30000 then call dma_fill($24000, 0, cword($8000)) ' $24000 - $2c000 = 32 KB
     ' skip over C64 kernal ($2c000 - $30000)
-    if gConfig.bitmap_mirror < $38000 then call dma_fill($30000, 0, $8000)
-    if gConfig.bitmap_mirror < $40000 then call dma_fill($38000, 0, $8000)
-    if gConfig.bitmap_mirror < $48000 then call dma_fill($40000, 0, $8000)
-    if gConfig.bitmap_mirror < $50000 then call dma_fill($48000, 0, $8000)
-    if gConfig.bitmap_mirror < $58000 then call dma_fill($50000, 0, $8000)
-    if gConfig.bitmap_mirror < $60000 then call dma_fill($58000, 0, $8000)
+    if gConfig.merge_bitmap < $38000 then call dma_fill($30000, 0, $8000)
+    if gConfig.merge_bitmap < $40000 then call dma_fill($38000, 0, $8000)
+    if gConfig.merge_bitmap < $48000 then call dma_fill($40000, 0, $8000)
+    if gConfig.merge_bitmap < $50000 then call dma_fill($48000, 0, $8000)
+    if gConfig.merge_bitmap < $58000 then call dma_fill($50000, 0, $8000)
+    if gConfig.merge_bitmap < $60000 then call dma_fill($58000, 0, $8000)
     ' total: 26 + 7*32 = 250 KB (need 250 for 640x400x64 screen)
 end sub
 
@@ -570,7 +638,6 @@ sub release_rom() static
 end sub
 
 sub fc_setMergeTileMode(x0 as byte, y0 as byte, width as byte, height as byte, expand_x as byte) shared static
-    dim size as long
     if mergeTileMode = false then
         mergeTileMode = true
         mergeTile_x0 = x0
@@ -579,22 +646,29 @@ sub fc_setMergeTileMode(x0 as byte, y0 as byte, width as byte, height as byte, e
         mergeTile_height = height
         mergeTile_expand_x = expand_x
 
+        gConfig.merge_bitmap_size = clong(mergeTile_width) * mergeTile_height * 64
+        if expand_x then gConfig.merge_bitmap_size = gConfig.merge_bitmap_size * 2
+
         ' check how much memory is needed for screen bitmap
-        size = clong(mergeTile_width) * mergeTile_height * 64
-        if expand_x then size = size * 2
-        gConfig.bitmap_mirror = $60000 - size
-        if gConfig.bitmap_mirror < $40000 then 
-            if gConfig.bitmap_mirror < $30000 then gConfig.bitmap_mirror = $19000 
-            call release_rom()
+        ' taking into account DOS and C64 kernal that cannot
+        ' be overwritten
+
+        gConfig.merge_bitmap = $60000 - gConfig.merge_bitmap_size
+        if gConfig.merge_bitmap < $40000 then call release_rom()
+        if gConfig.merge_bitmap >= $2c000 then 
+            gConfig.merge_bitmap = gConfig.merge_bitmap - $4000
+        end if
+        if gConfig.merge_bitmap >= $1f800 then 
+            gConfig.merge_bitmap = gConfig.merge_bitmap - $4800
         end if
 
         call fc_clearMergeTiles()
 
-        'print size, gConfig.bitmap_mirror, gConfig.bitmapbase
+        'print gConfig.merge_bitmap_size, gConfig.merge_bitmap, gConfig.bitmapbase
         'call fc_fatal()
 
         if fciCount > 1 then call fc_fatal("Merge mode will destroy bitmaps")
-        if gConfig.bitmapbase_high = 0 and gConfig.bitmapbase > gConfig.bitmap_mirror then
+        if gConfig.bitmapbase_high = 0 and gConfig.bitmapbase > gConfig.merge_bitmap then
             call fc_fatal("Bad bitmapbase overwrites the merge bitmap")
         end if
         call fc_freeGraphAreas()
@@ -721,21 +795,22 @@ sub fc_mergeTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byte,
         if screen_y < mergeTile_y0 or screen_y >= mergeTile_y0 + mergeTile_height then continue
         screenAddr = gConfig.screenbase + 2 * (x0 + screen_y * cword(gScreenColumns))
         fromTileAddr = fci(info).baseAdr + 64*(t_x + ((y + t_y) * clong(fci(info).columns)))
-        rawToTileAddr = gConfig.bitmap_mirror + clong(64) * mergeTile_width * (screen_y - mergeTile_y0)
+        rawToTileAddr = gConfig.merge_bitmap + clong(64) * mergeTile_width * (screen_y - mergeTile_y0)
+        'print screen_y, mergeTile_y0, rawToTileAddr, gConfig.merge_bitmap: call fc_fatal()
         for x as byte = 0 to t_w - 1
             screen_x = dx * x + x0
             if (screen_x < mergeTile_x0) then goto skip_to_next
             if (screen_x >= (mergeTile_x0 + mergeTile_width)) then goto skip_to_next
+
+            'print x, x0, screen_x, mergeTile_x0, mergeTile_width: call fc_fatal()
             toTileAddr = rawToTileAddr + clong(64) * (screen_x - mergeTile_x0)
-            if gConfig.bitmap_mirror < $40000 then
-                ' skip over DOS if needed
-                if toTileAddr + 64 > $1f800 then toTileAddr = toTileAddr + $4800
-                ' skip over C64 kernal if needed
-                if toTileAddr + 64 > $2c000 then toTileAddr = toTileAddr + $4000
-            end if 
+            ' skip over DOS if needed
+            if toTileAddr + 64 > $1f800 then toTileAddr = toTileAddr + $4800
+            ' skip over C64 kernal if needed
+            if toTileAddr + 64 > $2c000 then toTileAddr = toTileAddr + $4000
             charIndex = cword(toTileAddr / 64)
             if mergeTile_expand_x then
-                call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr, 0, $0400, 64, 0,    1, 0, 1, 0, true)
+                call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr, 0, $0400, 64, 0, true)
 
                 asm
                     ldx #0   ; 0 - 63 (source data at $0400)
@@ -764,15 +839,17 @@ done:               iny
                     cpx #64
                     bne loop
                 end asm
-                call dma_copy_transparent(0, $0440, 0, toTileAddr, 128, 0,    1, 0, 1, 0, overwrite)
-
+                call dma_copy_transparent(0, $0440, 0, toTileAddr, 128, 0, overwrite)
+                'for z as byte = 0 to 255: poke 1024+z,32:next
+                'print screen_x, mergeTile_x0
+                'print toTileAddr, rawToTileAddr, BYTE1(charIndex), BYTE0(charIndex): call fc_fatal()
                 call dma_poke(screenAddr + 1, BYTE1(charIndex))
                 call dma_poke(screenAddr, BYTE0(charIndex))
                 charIndex = charIndex + 1
                 call dma_poke(screenAddr + 3, BYTE1(charIndex))
                 call dma_poke(screenAddr + 2, BYTE0(charIndex))
             else
-                call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64, 0,    1, 0, 1, 0, overwrite)
+                call dma_copy_transparent(gConfig.bitmapbase_high, fromTileAddr, 0, toTileAddr, 64, 0, overwrite)
                 call dma_poke(screenAddr + 1, BYTE1(charIndex))
                 call dma_poke(screenAddr, BYTE0(charIndex))
             end if
@@ -1045,9 +1122,6 @@ sub fc_real_init(h640 as byte, v400 as byte, rows as byte, columns as byte) stat
         gTopBorder = TOPBORDER_PAL
         gBottomBorder = BOTTOMBORDER_PAL
     end if
-
-    ' where the sceen bitmap starts in mergeMode
-    gConfig.bitmap_mirror = $19000 
 
     firstFreePalMem = gConfig.palettebase
     firstFreeGraphMem = gConfig.bitmapbase
