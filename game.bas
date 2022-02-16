@@ -122,19 +122,19 @@ irqcallback:
         ; update irqtimer
         ; first step down from 60 to 20 Hz
         dec $fe
-        bne done
+        bne irqdone
         lda #3
         sta $fe
         ; increase irqtimer (long at $fb)
         inc $fb
-        bne done
+        bne irqdone
         inc $fc
-        bne done
+        bne irqdone
         inc $fd
         lda $fd
         and #$7f ; don't allow negative numbers
         sta $fd
-done:
+irqdone:
         ; play music
         jsr $c059
 

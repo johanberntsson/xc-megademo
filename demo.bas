@@ -45,6 +45,11 @@ main:
     call fc_revers(false)
     call fc_textcolor(GREEN)
 
+    call fc_displayTile(tiles, 0, 44, 0, 12, 28, 6)
+    call fc_displayTile(tiles, 28, 44, 0, 12, 28, 6)
+    call fc_displayTile(tiles, 56, 44, 0, 12, 24, 6)
+
+
     call fc_hlinexy(20,10,20,$30)
 
     call fc_center(0, 13, gScreenColumns, "press any key")
