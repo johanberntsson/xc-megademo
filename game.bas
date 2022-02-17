@@ -211,7 +211,7 @@ sub clear_tile(x as byte, y as byte) static
     xs = x_array2screen(x, y)
     ys = y_array2screen(x, y)
     map(x,y).hascursor = false
-    call fc_displayTile(tiles, xs, ys, 0, 6, 7, 6)
+    call fc_mergeTile(tiles, xs, ys, 0, 6, 7, 6, true)
 end sub
 
 sub show_cursor(xx as byte, yy as byte) static
@@ -507,22 +507,22 @@ end sub
 sub show_intro() static
     dim key as byte
     call fc_textcolor(RED)
-    call fc_center(0, 20, 80, "Breaking")
+    call fc_center(0, 0, 80, "Breaking")
     call fc_textcolor(GREEN)
-    call fc_center(0, 22, 80, "HEXAGONS")
+    call fc_center(0, 2, 80, "HEXAGONS")
     call fc_textcolor(WHITE)
-    call fc_center(0, 30, 80, "By Johan Berntsson")
+    call fc_center(0, 20, 80, "By Johan Berntsson")
     call fc_textcolor(GREY)
-    call fc_center(0, 32, 80, "version 1 - 9 Feb 2022")
+    call fc_center(0, 22, 80, "version 1 - 9 Feb 2022")
     call fc_textcolor(WHITE)
     call fc_center(0, 40, 80, "Loading...")
 
     load "armalyte.prg", 8
     call start_irq()
 
-    'logo = fc_loadFCI("logo.fci") 
-    'call fc_loadFCIPalette(logo)
-    'call fc_displayTile(logo, 0, 0, 0, 0, 56, 14)
+    logo = fc_loadFCI("logo.fci") 
+    call fc_loadFCIPalette(logo)
+    call fc_mergeTile(logo, 12, 0, 0, 0, 56, 14, true)
 
     tiles = fc_loadFCI("tiles.fci")
     call fc_center(0, 40, 80, "Press any key")
@@ -533,9 +533,9 @@ sub show_game() static
     'call show_sprite()
     call fc_clrscr()
     call fc_loadFCIPalette(tiles)
-    call fc_displayTile(tiles, 0, 44, 0, 12, 28, 6)
-    call fc_displayTile(tiles, 28, 44, 0, 12, 28, 6)
-    call fc_displayTile(tiles, 56, 44, 0, 12, 24, 6)
+    call fc_mergeTile(tiles, 0, 44, 0, 12, 28, 6, true)
+    call fc_mergeTile(tiles, 28, 44, 0, 12, 28, 6, true)
+    call fc_mergeTile(tiles, 56, 44, 0, 12, 24, 6, true)
 end sub
 
 main:

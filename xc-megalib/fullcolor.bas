@@ -274,6 +274,8 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
     dim options as byte
     dim compressed as byte
 
+    adrFrom = $400
+
     open 2,8,2, filename
     ' skip fciP
     read #2, b
@@ -294,7 +296,6 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
     size = fci(info).paletteSize
     adrTo = fc_allocPalMem(3 * size)
     fci(info).paletteAdr = adrTo
-    adrFrom = $400
     for i as byte = 0 to 2
         for j as word = 0 to size
             read #2, b
@@ -316,19 +317,18 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
     fci(info).baseAdr = adrTo
 
     dim lastb as word
-    dim totRead as word
+    dim totRead as long ' word (why cast?)
     dim count as byte
 
     n = 0
     count = 0
     totRead = 0
-    adrFrom = $400
 
     ' if compressed = true, then the data is RLE encoded
     ' with repeated numbers being the compression marker
     ' <num> <num> <count> means that the output contains
     ' <count> number of <num>
-    do while cint(totRead) < cint(size) ' TODO: why cast?
+    do while totRead < clong(size) ' TODO: why cast?
         if count > 0 then
             count = count - 1
         else 
@@ -347,6 +347,10 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
         totRead = totRead + 1
         if n = 255 then
             ' buffer is full, copy to destination
+            if gConfig.bitmapbase_high = 0 then
+                if adrTo >= $1f800 and adrTo < $24000 then call fc_fatal("Overwriting DOS")
+                if adrTo >= $2c000 and adrTo <= $30000 then call fc_fatal("overwriting C64 kernal")
+            end if 
             call dma_copy(0, adrFrom, gConfig.bitmapbase_high, adrTo, cword(256))
             adrTo = adrTo + n + 1
             n = 0
@@ -355,7 +359,7 @@ function fc_loadFCI as byte (info as byte, filename as String * 20) shared stati
         end if
     loop
     close 2
-    for n = 0 to 255: poke $0400 + n, 32: next
+    if adrFrom = $400 then for n = 0 to 255: poke $0400 + n, 32: next
     return info
 end function
 
@@ -640,6 +644,7 @@ sub release_rom() static
 end sub
 
 sub fc_setMergeTileMode(x0 as byte, y0 as byte, width as byte, height as byte, expand_x as byte) shared static
+    dim adjust_address as long 
     if mergeTileMode = false then
         mergeTileMode = true
         mergeTile_x0 = x0
@@ -656,17 +661,19 @@ sub fc_setMergeTileMode(x0 as byte, y0 as byte, width as byte, height as byte, e
         ' be overwritten
 
         gConfig.merge_bitmap = $60000 - gConfig.merge_bitmap_size
+        adjust_address = 0
         if gConfig.merge_bitmap < $40000 then call release_rom()
-        if gConfig.merge_bitmap >= $2c000 then 
-            gConfig.merge_bitmap = gConfig.merge_bitmap - $4000
+        if gConfig.merge_bitmap < $30000 then 
+            adjust_address = $4000
         end if
-        if gConfig.merge_bitmap >= $1f800 then 
-            gConfig.merge_bitmap = gConfig.merge_bitmap - $4800
+        if gConfig.merge_bitmap < $24000 then 
+            adjust_address = adjust_address + $4800
         end if
+        gConfig.merge_bitmap = gConfig.merge_bitmap - adjust_address
 
         call fc_clearMergeTiles()
 
-        'print gConfig.merge_bitmap_size, gConfig.merge_bitmap, gConfig.bitmapbase
+        'print gConfig.merge_bitmap_size, gConfig.merge_bitmap, gConfig.bitmapbase, adjust_address
         'call fc_fatal()
 
         if fciCount > 1 then call fc_fatal("Merge mode will destroy bitmaps")
@@ -784,7 +791,7 @@ sub fc_mergeTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byte,
     dim screen_x as byte
     dim screen_y as byte
 
-    'if mergeTileMode = false then call fc_fatal("merge mode not enabled")
+    if mergeTileMode = false then call fc_fatal("merge mode not enabled")
     if mergeTile_expand_x then
         dx = 2
         x0  = 2 * x0 -  mergeTile_x0
