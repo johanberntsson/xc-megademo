@@ -189,7 +189,7 @@ sub fc_fatal(message as String * 80) shared static
     ' you can add messages before calling fc_fatal with print,
     ' and they will appear on the screen afterwards
     call fc_go8bit()
-    print "fatal error:", message
+    print "fatal error: "; message
     do while true
     loop
 end sub
@@ -201,6 +201,8 @@ end sub
 sub fc_addGraphicsRect(x0 as byte, y0 as byte, width as byte, height as byte, bitmapData as long) static
     dim adr as long
     dim currentCharIdx as word
+
+    if gConfig.bitmapbase_high then call fc_fatal("The bitmap isn't in fast RAM")
 
     currentCharIdx = cword(bitmapData / 64) 
 
@@ -865,11 +867,7 @@ sub fc_displayTile(info as byte, x0 as byte, y0 as byte, t_x as byte, t_y as byt
     dim charIndex as word
     dim charBase as word
 
-    if gConfig.bitmapbase_high then
-        'call fc_fatal("displayTile can't use bitmap data in attic ram")
-        call fc_mergeTile(info, x0, y0, t_x, t_y, t_w, t_h, true)
-        return
-    end if
+    if gConfig.bitmapbase_high then call fc_fatal("only fc_mergeTile can use attic ram")
 
     charBase = cword(fci(info).baseAdr / 64)
     for y as byte = 0 to t_h -1
@@ -933,7 +931,7 @@ end sub
 sub fc_clrscr() shared static
     call fc_block(0, 0, windows(gCurrentWindow).width, windows(gCurrentWindow).height, 32, windows(gCurrentWindow).textcolor)
     call fc_gotoxy(0, 0)
-    'if mergeTileMode then call fc_clearMergeTiles()
+    if mergeTileMode then call fc_clearMergeTiles()
 end sub
 
 sub fc_textcolor(color as byte) shared static
@@ -1114,6 +1112,8 @@ sub fc_real_init(h640 as byte, v400 as byte, rows as byte, columns as byte) stat
     call enable_io()
     poke 53272,23 ' make lowercase
     mergeTileMode = false
+    csrflag = false
+    autocr = false
 
     if peek($d06f) and 128 then
         gTopBorder = TOPBORDER_NTSC
